@@ -87,6 +87,17 @@ function churchdb_getAllowedPersonData($cond='',
     }
   }
   
+  // Now make sure, that I am loaded
+  if (!isset($allPersons[$user->id])) {
+    $p=db_query("select $fields from {cdb_gemeindeperson} gp, {cdb_person} p 
+                 where gp.person_id=p.id and p.id=:p_id", array(":p_id"=>$user->id), false)->fetch();
+    if ($p!=false) {
+      if (isset($deps[$p->p_id])) $p->access=$deps[$p->p_id];
+      if (isset($arr_grps[$p->gp_id])) $p->groups=$arr_grps[$p->gp_id];
+      $allPersons[$user->id]=$p; 
+    }    
+  }
+  
   // Reichere sie nun an mit den Distriktleitern
   $db=db_query("select * from {cdb_person_distrikt}");
   foreach ($db as $d) {
@@ -110,8 +121,12 @@ function churchdb_getAllowedPersonData($cond='',
     }
   }
   
-  
   return $allPersons;	
+}
+
+
+function getAuthForPerson($id) {
+  return getAuthForDomain($id, "person");
 }
 
 function getAuthForDomain($id, $domain_type) {
@@ -133,6 +148,19 @@ function getAuthForDomain($id, $domain_type) {
   return $arr_auth;
 }
 
+/**
+ * Is Person in Group
+ * @param unknown $user_id 
+ * @param unknown $groups array of group Ids
+ * @return boolean
+ */
+function churchdb_isPersonInGroups($user_id, $groups) {
+  $res=db_query("SELECT count(*) c
+               FROM {cdb_person} p, {cdb_gemeindeperson} gp, {cdb_gemeindeperson_gruppe} gpg
+                      WHERE p.id=gp.person_id and gpg.gemeindeperson_id=gp.id and p.id=:id
+                       and gpg.gruppe_id in (".implode(",", $groups).") ", array(':id'=>$user_id))->fetch();
+  return ($res->c>0);  
+}
 
 /**
  * Holt sich alle Gruppendaten, von den Gruppen die ich sehen darf. Also wenn ich view alldetails habe
@@ -151,49 +179,54 @@ function churchdb_getAllowedGroups() {
  * Wenn ich keine "view alldetails"-Rechte habe, dann nur wo ich Leiter bin und Abschlußdatum nicht länger als groupnotchoosable ist 
  * oder auch anzeigene_in_meine_gruppen_teilnehmer_yn=1 ist.
  * @param $user_pid
+ * @param $only_ids default=false, only return array of IDs, otherweise array of person data
+ * @param $onlyIAmLeader default=false, only where I am a leader in the group
+ * @param $onlySuperGroups default=false, only where I am a district or grouptype leader
  */
-function churchdb_getMyGroups($user_pid, $only_ids=false, $onlyIAmLeader=false) {
+function churchdb_getMyGroups($user_pid, $only_ids=false, $onlyIAmLeader=false, $onlySuperGroups=false) {
   global $user, $config;
   if ($user_pid==null) return array();
   
-  $res=db_query("select g.*, gpg.status_no, gt.anzeigen_in_meinegruppen_teilnehmer_yn, datediff(current_date, g.abschlussdatum) abschlusstage
-         from {cdb_gruppe} g, {cdb_gemeindeperson_gruppe} gpg, {cdb_gemeindeperson} gp, {cdb_gruppentyp} gt
-         where gp.person_id=$user_pid and gpg.gemeindeperson_id=gp.id and gpg.gruppe_id=g.id and g.gruppentyp_id=gt.id");
   $arrs=array();
-  foreach ($res as $a) {
-    // Entweder nicht nur Leitergruppen oder ich eben Leiter Status>0
-    if ((!$onlyIAmLeader) || ($a->status_no>0)) {
-      // Entweder auch für TN sichtbar und Status nicht zum löschen markiert
-      if ((($a->anzeigen_in_meinegruppen_teilnehmer_yn==1) && ($a->status_no!=-1))
-      // oder wenn ich Leiter bin (status_no>0) und Abschlussdatum nicht zu lange her ist 
-          || (($a->status_no>0) && (($a->abschlusstage==null) || ($a->abschlusstage<$config["churchdb_groupnotchoosable"])))
-  // => Habe ich erst mal rausgenommen, denn sonst sieht man plötzlich  mit alldetails Leute aus Freizeiten oder mit gleichen Merkmalen!        
-          // oder wenn ich alle Details sehen darf 
-          //|| ((isset($user->auth["churchdb"])) && (isset($user->auth["churchdb"]["view alldetails"]))))
-          )
-          // Wenn die Gruppe versteckt ist oder ich Leiter bin
-        if (($a->versteckt_yn==0) || (($a->status_no>0) && ($a->status_no<4)))
-        if ($only_ids)
-            $arrs[$a->id]=$a->id;
-          else  
-            $arrs[$a->id]=$a;
-    }
-  }  
-  
-  // Hole mir nun die Gruppen, wo ich durch View-Berechtitgun habe
-  if (!$onlyIAmLeader) {
-    $auth=user_access("view group", "churchdb");
-    if ($auth!=null) {
-      $res=db_query("select g.* from {cdb_gruppe} g where g.id in (".implode(",",$auth).")");
-      foreach ($res as $a) {
-        if (!isset($arrs[$a->id]))
+  if (!$onlySuperGroups) {
+    $res=db_query("select g.*, gpg.status_no, gt.anzeigen_in_meinegruppen_teilnehmer_yn, datediff(current_date, g.abschlussdatum) abschlusstage
+           from {cdb_gruppe} g, {cdb_gemeindeperson_gruppe} gpg, {cdb_gemeindeperson} gp, {cdb_gruppentyp} gt
+           where gp.person_id=$user_pid and gpg.gemeindeperson_id=gp.id and gpg.gruppe_id=g.id and g.gruppentyp_id=gt.id");
+    foreach ($res as $a) {
+      // Entweder nicht nur Leitergruppen oder ich eben Leiter Status>0
+      if ((!$onlyIAmLeader) || ($a->status_no>0)) {
+        // Entweder auch für TN sichtbar und Status nicht zum löschen markiert
+        if ((($a->anzeigen_in_meinegruppen_teilnehmer_yn==1) && ($a->status_no!=-1))
+        // oder wenn ich Leiter bin (status_no>0) und Abschlussdatum nicht zu lange her ist 
+            || (($a->status_no>0) && (($a->abschlusstage==null) || ($a->abschlusstage<$config["churchdb_groupnotchoosable"])))
+    // => Habe ich erst mal rausgenommen, denn sonst sieht man plötzlich  mit alldetails Leute aus Freizeiten oder mit gleichen Merkmalen!        
+            // oder wenn ich alle Details sehen darf 
+            //|| ((isset($user->auth["churchdb"])) && (isset($user->auth["churchdb"]["view alldetails"]))))
+            )
+            // Wenn die Gruppe versteckt ist oder ich Leiter bin
+          if (($a->versteckt_yn==0) || (($a->status_no>0) && ($a->status_no<4)))
           if ($only_ids)
-            $arrs[$a->id]=$a->id;
-          else  
-            $arrs[$a->id]=$a;
-      }    
-    }
-  }  
+              $arrs[$a->id]=$a->id;
+            else  
+              $arrs[$a->id]=$a;
+      }
+    }  
+    
+    // Hole mir nun die Gruppen, wo ich durch View-Berechtitgun habe
+    if (!$onlyIAmLeader) {
+      $auth=user_access("view group", "churchdb");
+      if ($auth!=null) {
+        $res=db_query("select g.* from {cdb_gruppe} g where g.id in (".implode(",",$auth).")");
+        foreach ($res as $a) {
+          if (!isset($arrs[$a->id]))
+            if ($only_ids)
+              $arrs[$a->id]=$a->id;
+            else  
+              $arrs[$a->id]=$a;
+        }    
+      }
+    }  
+  }
   
   // Hole mir nun die Gruppen, wo ich als Distriktleiter eingsetzt bin
   $res=db_query("select g.* from {cdb_gruppe} g, {cdb_person_distrikt} pd
@@ -245,6 +278,133 @@ function churchdb_addEvent($params) {
   
   $id=db_insert("cdb_gruppentreffen")->fields($i->getDBInsertArrayFromParams($params))->execute(false);        
   return $id;  
+}
+
+
+function _checkPersonAutorisierung($auto, $iAmLeader, $iAmSuperLeader) {
+  if ($auto==null) return true;
+  $ret=false;
+  foreach(explode("||", $auto) as $auth) {
+    $auth=trim($auth);
+    if ($auth=="admin") {
+      if (user_access('edit masterdata',"churchdb")) $ret=true;
+    }
+    else if ($auth=="viewalldetails") {
+      if (user_access('view alldetails',"churchdb")) $ret=true;
+    }
+    else if ($auth=="leader") {
+      if ($iAmLeader) $ret=true;
+    }
+    else if ($auth=="superleader") {
+      if ($iAmSuperLeader) $ret=true;
+    }
+    else throw new CTException("Unbekanntes Recht: '".$auth."'");
+  }
+   
+  return $ret;
+}
+function churchdb_getPersonDetails($id) {
+  global $user;
+
+  // Entweder habe ich viewall auf den Bereich oder ich bin mit dem in einer Gruppe
+  $allowed=$user->id==$id;
+  $iAmLeader=false;
+  $iAmSuperLeader=false;
+
+  // Am i super leader?
+  if (churchdb_isPersonSuperLeaderOfPerson($user->id, $id)) {
+    $iAmSuperLeader=true;
+    $iAmLeader=true;
+    $allowed=true;
+  }
+  // PrÔøΩfe erst, ob ich als Leiter mit dem in der Gruppe bin
+  if (churchdb_isPersonLeaderOfPerson($user->id, $id)) {
+    $iAmLeader=true;
+    $allowed=true;
+  }
+  // PrÔøΩfe nun, ob ich normal mit dem in der Gruppe bin
+  if (!$allowed) {
+    $myGroups=churchdb_getMyGroups($user->id, true, false);
+    if (count($myGroups)>0) {
+      $res=db_query("SELECT count(*) c
+               FROM {cdb_person} p, {cdb_gemeindeperson} gp, {cdb_gemeindeperson_gruppe} gpg
+                      WHERE p.id=gp.person_id and gpg.gemeindeperson_id=gp.id and p.id=:id
+                       and gpg.gruppe_id in (".implode(",", $myGroups).") ", array(':id'=>$id))->fetch();
+      if ($res->c>0) {
+        $allowed=true;
+      }
+    }
+  }
+  if (!$allowed) {
+    $allowedDeps=user_access("view alldata", "churchdb");
+    if ($allowedDeps!=null) {
+      $res=db_query('select count(*) as c from {cdb_bereich_person}
+          where person_id=:p_id and bereich_id in ('.implode(',', $allowedDeps).')'
+          , array(':p_id'=>$id), false)->fetch();
+      if ($res->c>0) $allowed=true;
+    }
+  }
+
+  if (!$allowed)
+    return "no access";
+
+  $res=db_query("select f.*, fk.intern_code from {cdb_feld} f, {cdb_feldkategorie} fk where f.feldkategorie_id=fk.id
+              and fk.intern_code in ('f_address', 'f_church', 'f_category') and aktiv_yn=1");
+  $sqlfields=array();
+  $sqlfields[]="p.id id";
+  $sqlfields[]="gp.id gp_id";
+  $sqlfields[]="geolat as lat";
+  $sqlfields[]="imageurl";
+  $sqlfields[]="geolng as lng";
+  $sqlfields[]="cmsuserid";
+
+
+
+  foreach ($res as $res2) {
+    if (($res2->autorisierung==null) || (_checkPersonAutorisierung($res2->autorisierung, $iAmLeader, $iAmSuperLeader))) {
+      if (($res2->intern_code=="f_address") || ($iAmLeader) || (user_access('view alldetails',"churchdb")))
+        $sqlfields[]=$res2->db_spalte;
+    }
+  }
+   
+  $sql="select ".join($sqlfields,",");
+  if (($iAmLeader) || (user_access('view alldetails',"churchdb")) || (user_access('administer persons',"churchcore")))
+    $sql.=', p.letzteaenderung, p.aenderunguser, p.createdate, if (loginstr is null , 0 , 1) as einladung, p.active_yn, p.lastlogin';
+   
+  $sql.=' FROM {cdb_person} p, {cdb_gemeindeperson} gp WHERE p.id=gp.person_id and p.id=:pid';
+
+  $person=db_query($sql, array(':pid'=>$id))->fetch();
+  $comments=db_query("select id, text, person_id, datum, comment_viewer_id, relation_name from {cdb_comment}
+                      where relation_id=:relid and relation_name like 'person%'
+					  order by datum desc", array(':relid'=>$id));
+  $auth=user_access("view comments","churchdb");
+  if (($comments) && ($auth!=null)) {
+    $arrs=null;
+    foreach ($comments as $arr) {
+      if ((isset($auth[$arr->comment_viewer_id])) &&
+      ($auth[$arr->comment_viewer_id]==$arr->comment_viewer_id))
+        $arrs[]=$arr;
+    }
+    $person->comments=$arrs;
+  }
+  $person->auth=getAuthForPerson($id);
+  return $person;
+}
+
+function churchdb_isPersonSuperLeaderOfPerson($superleader_id, $person_id) {
+  $myGroups=churchdb_getMyGroups($superleader_id, true, false, true);
+  if (count($myGroups)>0) {
+    return churchdb_isPersonInGroups($person_id, $myGroups);
+  }
+  return false;
+}
+
+function churchdb_isPersonLeaderOfPerson($leader_id, $person_id) {
+  $myGroups=churchdb_getMyGroups($leader_id, true, true);
+  if (count($myGroups)>0) {
+    return churchdb_isPersonInGroups($person_id, $myGroups);
+  }
+  return false;
 }
 
 // Gibt ein Array zurück mit allen p_ids in den Gruppen myGroups
@@ -371,21 +531,27 @@ function getBirthdayList($diff_from, $diff_to) {
                   name, vorname, spitzname, DATE_FORMAT(geburtsdatum, '%d.%m.%Y') geburtsdatum_d, DATE_FORMAT(geburtsdatum, '%d.%m.') geburtsdatum_compact, geburtsdatum, 
                          (DATE_FORMAT(NOW(), '%Y') - DATE_FORMAT(geburtsdatum, '%Y') - 
                           (DATE_FORMAT(NOW(), '00-%m-%d') < DATE_FORMAT(geburtsdatum, '00-%m-%d'))) as age,
+                      year(geburtsdatum) jahr,
                      s.bezeichnung, gp.imageurl imageurl, status.bezeichnung status
                FROM {cdb_person} p, {cdb_gemeindeperson} gp, {cdb_station} s, {cdb_status} status
-                 where p.id=gp.person_id and status_id in (".$status_id.") and gp.station_id in (".$station_id.") and geburtsdatum is not null and status.id=gp.status_id
+                 where p.id=gp.person_id and status_id in (".$status_id.") and gp.station_id in (".$station_id.") 
+                 and geburtsdatum is not null and year(geburtsdatum)<7000
+                 and status.id=gp.status_id
                          and s.id=gp.station_id and archiv_yn=0) 
 		  as t) as t2 where ((bla>=$diff_from) and (bla<=$diff_to))
 		    order by bla, name, vorname
 		  ";
-//		   (t.diff>=$diff_from and t.diff<=$diff_to) 
-//		          or (t.diff+365>=$diff_from and t.diff+365<=$diff_to) /* Hat Anfang naechsten Jahres, also z.bsp:diff=-360*/ 
-//		          or (t.diff-365>=$diff_from and t.diff-365<=$diff_to) /* Hat Ende letzten jahres, also z.Bsp:diff=+360*/
-//		          ORDER BY MONTH(geburtsdatum), DAYOFMONTH(geburtsdatum ), name, vorname";*/
   
   $sql_bereich="select bp.person_id, bezeichnung from {cdb_bereich_person} bp, {cdb_bereich} b where bp.bereich_id=b.id and bp.person_id=:p_id order by bezeichnung";
   $res = db_query($sql);
   foreach ($res as $arr) {
+    if ($arr->jahr==1004) {
+      $arr->age="";
+      $arr->geburtsdatum_compact="";
+      $arr->geburtsdatum="";
+      $arr->geburtsdatum_d=substr($arr->geburtsdatum_d,0,6);
+    }
+    
     $res_bereich=db_query($sql_bereich,array(":p_id"=>$arr->person_id));
     $bereich="";
     foreach ($res_bereich as $arr_bereich) {
@@ -548,6 +714,8 @@ function savePropertiesGroupMeetingStats($params) {
   $i->setParam("id");
   $i->setParam("anzahl_gaeste");
   $i->setParam("kommentar");
+  $i->setParam("datumvon", false);
+  $i->setParam("datumbis", false);
   $i->addModifiedParams();  
   
   $id=db_update("cdb_gruppentreffen")

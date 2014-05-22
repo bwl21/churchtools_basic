@@ -1,30 +1,10 @@
 <?php 
 
 
-/**
- * Erzeugt eine Uebersicht ueber alle Stammdatentabellen, die per MaintainView gepflegt werden sollen
- * Diese Infos werden per JSON an das JS uebergeben
- */
-function churchwiki_getMasterDataTablenames() {
-  $res=array();
-  $res[1]=churchcore_getMasterDataEntry(1, "Wiki-Kategorien", "wikicategory", "cc_wikicategory","sortkey,bezeichnung");
-  
-  return $res;
-}
-
-function churchwiki_getMasterDataTables() {
-  $tables=churchwiki_getMasterDataTablenames();
-  foreach ($tables as $value) {
-    $res[$value["shortname"]]=churchcore_getTableData($value["tablename"],$value["sql_order"]);
-  }
-  return $res;
-}
-
 function churchwiki_getAdminModel() {
   $model = new CC_ModulModel("churchwiki");      
   return $model;
 }
-
 
 function churchwiki_getCurrentNo($doc_id, $wikicategory_id=0) {
   $res=db_query("select max(version_no) c from {cc_wiki} where doc_id=:doc_id and wikicategory_id=:wikicategory_id",
@@ -34,6 +14,17 @@ function churchwiki_getCurrentNo($doc_id, $wikicategory_id=0) {
   else 
     return $res->c;  
 }
+
+function churchwiki_getAuth() {
+  $cc_auth = array();
+  $cc_auth=addAuth($cc_auth, 501,'view', 'churchwiki', null, 'ChurchWiki sehen', 1);
+  $cc_auth=addAuth($cc_auth, 502,'view category', 'churchwiki', 'cc_wikicategory', 'Einzelne Wiki-Kategorien sehen', 1);
+  $cc_auth=addAuth($cc_auth, 503,'edit category', 'churchwiki', 'cc_wikicategory', 'Einzelne Wiki-Kategorien editieren', 1);
+  $cc_auth=addAuth($cc_auth, 599,'edit masterdata', 'churchwiki', null, 'Stammdaten editieren', 1);
+  return $cc_auth;
+}
+
+
 
 function churchwiki_setShowonstartpage($params) {
   $i=new CTInterface();
@@ -90,14 +81,21 @@ function churchwiki__filedownload() {
 
 class CTChurchWikiModule extends CTAbstractModule {
 
+  public function getMasterDataTablenames() {
+    $res=array();
+    $res[1]=churchcore_getMasterDataEntry(1, "Wiki-Kategorien", "wikicategory", "cc_wikicategory","sortkey,bezeichnung");
+  
+    return $res;
+  }
+  
   public function getMasterData() {
     global $user, $base_url, $files_dir, $config;
     
     $data["wikicategory"]=churchcore_getTableData("cc_wikicategory");
-    $data["auth"]=churchwiki_getAuth();    
+    $data["auth"]=churchwiki_getAuthForAjax();    
     
     $data["settings"]=array();
-    $data["masterDataTables"] = churchwiki_getMasterDataTablenames();
+    $data["masterDataTables"] = $this->getMasterDataTablenames();
     $data["files_url"] = $base_url.$files_dir;
     $data["files_dir"] = $files_dir;
     $data["modulename"] = "churchwiki";
@@ -108,22 +106,24 @@ class CTChurchWikiModule extends CTAbstractModule {
   
   public function save($params) {
     global $user;
-    $auth=churchwiki_getAuth();  
+    $auth=churchwiki_getAuthForAjax();  
     if (($auth["edit"]==false) || ($auth["edit"][$params["wikicategory_id"]]!=$params["wikicategory_id"]))
         throw new CTNoPermission("edit", "churchwiki");
     $dt = new DateTime();
+    $text=$_POST["val"];
+    if ($text=="") $text=" "; // Save an emtpy string, so I know there is some data
     $sql="insert into {cc_wiki} (doc_id, version_no, wikicategory_id, text, modified_date, modified_pid)
       values (:doc_id, :version_no, :wikicategory_id, :text, :modified_date, :modified_pid)";
     db_query($sql,array(":doc_id"=>$_POST["doc_id"], 
       ":version_no"=>churchwiki_getCurrentNo($_POST["doc_id"],$_POST["wikicategory_id"])+1, 
       ":wikicategory_id"=>$_POST["wikicategory_id"],
-      ":text"=>$_POST["val"], 
+      ":text"=>$text, 
       ":modified_date"=>$dt->format('Y-m-d H:i:s'), 
       ":modified_pid"=>$user->id), false);                
   }
   
   public function load($params) {
-    $auth=churchwiki_getAuth();  
+    $auth=churchwiki_getAuthForAjax();  
     if (($auth["view"]==false) || ($auth["view"][$params["wikicategory_id"]]!=$params["wikicategory_id"]))
       throw new CTNoPermission("view", "churchwiki");
     if (!isset($params["version_no"]))
@@ -134,6 +134,7 @@ class CTChurchWikiModule extends CTAbstractModule {
   }
     
   public function loadHistory($params) {  
+    $auth=churchwiki_getAuthForAjax();  
     if (($params["wikicategory_id"]!=0) && (($auth["view"]==false) || ($auth["view"][$params["wikicategory_id"]]!=$params["wikicategory_id"])))
       throw new CTNoPermission("view", "churchwiki");
     $data=db_query("select version_no id, 
@@ -147,6 +148,7 @@ class CTChurchWikiModule extends CTAbstractModule {
   }
   
   public function showonstartpage($params) {
+    $auth=churchwiki_getAuthForAjax();
     if (($auth["edit"]==false) || ($auth["edit"][$_POST["wikicategory_id"]]!=$_POST["wikicategory_id"]))
       throw new CTNoPermission("edit", "churchwiki");
     return churchwiki_setShowonstartpage($params);
@@ -162,7 +164,7 @@ class CTChurchWikiModule extends CTAbstractModule {
 }
 
 
-function churchwiki_getAuth() {
+function churchwiki_getAuthForAjax() {
   $auth["view"]=user_access("view category", "churchwiki");
   $auth["edit"]=user_access("edit category", "churchwiki");
   $auth["admin"]=user_access("edit masterdata", "churchwiki");
@@ -178,7 +180,7 @@ function churchwiki_getAuth() {
 function churchwiki__ajax() {
   global $user, $files_dir, $base_url, $mapping, $config;
     
-  $auth=churchwiki_getAuth();
+  $auth=churchwiki_getAuthForAjax();
   
   if ((!user_access("view","churchwiki")) && (!in_array("churchwiki",$mapping["page_with_noauth"]))
         && (!in_array("churchwiki",$config["page_with_noauth"]))) 

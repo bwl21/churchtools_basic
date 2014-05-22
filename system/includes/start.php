@@ -25,7 +25,6 @@ function handleShutdown() {
     $info = "[ERROR] file:".$error['file'].":".$error['line']." <br/><i>".$error['message'] .'</i>'.PHP_EOL;
     echo '<div class="alert alert-error">'.$info.'</div>';
   }
-  db_close();
 }
 
 /**
@@ -37,17 +36,6 @@ function loadConfig() {
     global $files_dir;
     // Unix default. Should have ".conf" extension as per standards.
     $config = null;
-    $cnf_location = "/etc/churchtools/default.conf";
-    if (file_exists($cnf_location)) {
-        $config = parse_ini_file($cnf_location);
-    }
-
-    // Package installed, per domain.
-    // All possible virt-hosts in HTTP server has to be symlinked to it.
-    $cnf_location = "/etc/churchtools/hosts/" . $_SERVER["SERVER_NAME"] . ".conf";
-    if ($config == null && file_exists($cnf_location)) {
-        $config = parse_ini_file($cnf_location);
-    }
 
     // Config, based on subdomain.
     // WARNING: This code will break per IP address access and supports only last subdomain.
@@ -65,7 +53,20 @@ function loadConfig() {
     if ($config == null && file_exists($cnf_location)) {
         $config = parse_ini_file($cnf_location);
     }
-  
+
+    // Config in default linux etc location
+    $cnf_location = "/etc/churchtools/default.conf";
+    if ($config == null && @file_exists($cnf_location)) {
+      $config = parse_ini_file($cnf_location);
+    }
+    
+    // Package installed, per domain.
+    // All possible virt-hosts in HTTP server has to be symlinked to it.
+    $cnf_location = "/etc/churchtools/hosts/" . $_SERVER["SERVER_NAME"] . ".conf";
+    if ($config == null && @file_exists($cnf_location)) {
+      $config = parse_ini_file($cnf_location);
+    }
+    
     if ($config == null) {
         $error_message = "<h3>" . "Error: Configuration file was not found." . "</h3>";
         $error_message .= "<p>" . "Expected locations are:
@@ -175,8 +176,8 @@ function churchtools_main() {
   
   $base_url=getBaseUrl();
   
-  include("system/churchcore/churchcore_db.inc");
-  include("system/lib/i18n.php");
+  include_once("system/churchcore/churchcore_db.inc");
+  include_once("system/lib/i18n.php");
   
   $config = loadConfig();
   
@@ -185,20 +186,17 @@ function churchtools_main() {
       // DBConfig overwrites the config files
       loadDBConfig();
       
+      date_default_timezone_set(variable_get("timezone", "Europe/Berlin"));
+      
       // Load i18n churchcore-bundle 
       if (!isset($config["language"])) {
-        $config["language"]=substr($_SERVER['HTTP_ACCEPT_LANGUAGE'],0,2);
+        if (isset($_SERVER['HTTP_ACCEPT_LANGUAGE']))
+          $config["language"]=substr($_SERVER['HTTP_ACCEPT_LANGUAGE'],0,2);
+        else
+          $config["language"]="de";
       }
       $i18n = new TextBundle("system/churchcore/resources/messages");
       $i18n->load("churchcore", ($config["language"]!=null ? $config["language"] : null));
-      
-      // PrŸfe auf Offline-Modus !
-      if ((isset($config["site_offline"]) && ($config["site_offline"]==1))) {
-        if ((!isset($_SESSION["user"]) || (!in_array($_SESSION["user"]->id, $config["admin_ids"])))) {
-          echo t("site.is.down");
-          return false;
-        }
-      }
       
       // Session Init
       if (!file_exists($files_dir."/tmp")) 
@@ -207,16 +205,27 @@ function churchtools_main() {
         // Admin should act accordingly, default suggestion is 0755.
         addErrorMessage(t("permission.denied.write.dir", $files_dir));
       }
+      else {
+        session_save_path($files_dir."/tmp");
+      }
       session_name("ChurchTools_".$config["db_name"]);
       session_start();    
       register_shutdown_function('handleShutdown');
-      
+
+      // PrŸfe auf Offline-Modus !
+      if ((isset($config["site_offline"]) && ($config["site_offline"]==1))) {
+        if ((!isset($_SESSION["user"]) || (!in_array($_SESSION["user"]->id, $config["admin_ids"])))) {
+          echo t("site.is.down");
+          return false;
+        }
+      }
       
       if (isset($_GET["q"])) {
         $q=$_GET["q"];  
       }
       if ($q=="")
-        $q="home";
+        if (userLoggedIn()) $q="home";
+         else $q=variable_get("site_startpage", "home");
       
       $q_orig=$q;    
       
@@ -299,8 +308,14 @@ function processRequest($_q) {
                 && (!in_array($_q,(isset($config["page_with_noauth"])?$config["page_with_noauth"]:array()))))  {
       // Wenn kein Benutzer angemeldet ist, dann zeige nun die Anmeldemaske
       if (!userLoggedIn()) {
-        $q="login";
-        return processRequest("login");
+        if (strrpos($q, "ajax")===false) { 
+          $q="login";
+          return processRequest("login");
+        }
+        else {
+          drupal_json_output(jsend()->error("Session expired!"));
+          die();
+        }
       }
       else {
         $name=$_q;

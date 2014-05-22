@@ -22,7 +22,7 @@
   <entry key="admin.permissions">Manage permissions</entry>
   <entry key="start.cronjob">Start scheduler</entry>
   <entry key="logviewer">View logs</entry>
-  <entry key="about.churchtools">About ChurchTools {0}</entry>
+  <entry key="about">About</entry>
   <entry key="logout">Logout</entry>
   <entry key="change.to">Switch to...</entry>
   <entry key="offline.mode.is.active">Caution! Offline mode is active.</entry>  
@@ -68,6 +68,7 @@
   <entry key="email.or.username.unknown">Your e-mail or username was not recognized.</entry>
   <entry key="forgot.password">Forgot password?</entry>
   <entry key="want.to.receive.new.password">Do you really want to receive a new password?</entry>
+  <entry key="wrong.password">Wrong password.</entry>  
   
   <!-- MAIL-ARCHIV -->	  
   <entry key="archive.of.sent.messages">Archive of sent messages</entry>
@@ -79,5 +80,7 @@
   <entry key="sender">Sender</entry>
   <entry key="subject">Subject</entry>
   <entry key="read">Read</entry>
+
+  <entry key="service">Dienst</entry>
 	  
 </properties>

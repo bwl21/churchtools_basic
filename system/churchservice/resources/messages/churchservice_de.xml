@@ -7,10 +7,11 @@
   <entry key="workload">Auslastung</entry>
   <entry key="settings">Einstellungen</entry>
   <entry key="maintain.masterdata">Stammdatenpflege</entry>
+  <entry key="printview">Druckansicht</entry>
   <entry key="help">Hilfe</entry>
   <entry key="back.to.main.menu">Zurück zum Hauptmenü</entry>
 
-  <entry key="simulate.person">Simulate person</entry>
-  <entry key="name.of.person">Name of person</entry>
+  <entry key="simulate.person">Person simulieren</entry>
+  <entry key="name.of.person">Name der Person</entry>
 	  
 </properties>

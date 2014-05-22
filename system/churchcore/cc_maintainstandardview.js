@@ -68,7 +68,22 @@ MaintainStandardView.prototype.getListHeader = function() {
 
 MaintainStandardView.prototype.renderListEntry = function(a) {
   rows=new Array();
-  rows.push("<td>" + a.bezeichnung);
+
+  
+  var name=a.bezeichnung;
+  if (masterData.fields!=null)
+  $.each(masterData.fields, function(k,m) {
+    if (m.fields!=null) {
+      $.each(m.fields, function(i,n) {
+        if (n.selector==a.shortname) {
+          name=n.text;
+          return false;
+        }
+      });
+    }
+  });
+
+  rows.push("<td>" + name);
   i=0;
   if (masterData[a.shortname]!=null)
     $.each(masterData[a.shortname], function(k,a) {
@@ -224,6 +239,7 @@ MaintainStandardView.prototype.renderEntryDetail = function(pos_id, data_id) {
           alert("Fehler beim Speichern: "+data);
         else {  
           masterData[table.shortname][obj.id][obj.col0]=obj.value0;
+          masterData.masterDataTables[table.id].open=true;
           this_object.renderList(masterData.masterDataTables[table.id]);
         }
       });      
@@ -336,7 +352,7 @@ MaintainStandardView.prototype.renderEditEntry = function (id, table_id) {
     }    
   });
  
-  var elem = this.showDialog("Ver&auml;nderung des Datensatzes "+table.bezeichnung, form.render(null, "horizontal"), 500, 450, {
+  var elem = this.showDialog("Veränderung des Datensatzes "+table.bezeichnung, form.render(null, "horizontal"), 500, 450, {
       "Speichern": function() {
         var s = $(this).attr("id");
         

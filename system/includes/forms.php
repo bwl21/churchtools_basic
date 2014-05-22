@@ -15,6 +15,9 @@ class CC_HTMLElement {
     if (is_bool($this->value)) {
       if ($this->value) return "1"; else return "0";
     }
+    if (!is_string($this->value)) {
+      return "";
+    }
     return $this->getValue();
   }
 
@@ -40,11 +43,12 @@ class CC_Field extends CC_HTMLElement {
   private $form;
   private $error=null;
   
-  public function __construct($form, $name, $class, $fieldType, $label) {
+  public function __construct($form, $name, $class, $fieldType, $label, $autofocus=false) {
     parent::__construct($name, $class);
     $this->form=$form;
     $this->fieldType=$fieldType;
     $this->label=$label;
+    $this->autofocus=$autofocus;
   }
   
   public function getLabel() {
@@ -88,6 +92,7 @@ class CC_Field extends CC_HTMLElement {
   }
   
   public function render() {   
+    global $files_dir;
     $txt="";
     if (($this->fieldType=="INPUT_REQUIRED") || ($this->fieldType=="INPUT_OPTIONAL") || ($this->fieldType=="TEXTAREA")
          || ($this->fieldType=="EMAIL") || ($this->fieldType=="PASSWORD")) {     
@@ -116,6 +121,8 @@ class CC_Field extends CC_HTMLElement {
         
         if (isset($this->value)) $txt.=' value="'.$this->value.'" ';
         
+        if (isset($this->autofocus) && $this->autofocus) $txt.=' autofocus="autofocus"';
+        
         $txt.='/>';
       }
       
@@ -124,15 +131,56 @@ class CC_Field extends CC_HTMLElement {
         
       $txt.='</div>';
     }
-    else if ($this->fieldType=="CHECKBOX"){
-      $txt.='<label class="checkbox" for="'.$this->form->getName().'_'.$this->getName().'"">';
+    else if ($this->fieldType=="CHECKBOX") {
+      $txt.='<label class="checkbox" for="'.$this->form->getName().'_'.$this->getName().'">';
       $txt.='<input name="'.$this->form->getName().'['.$this->getName().']" id="'.$this->form->getName().'_'.$this->getName();
           $txt.='" type="checkbox"';
       if (($this->value!=null) && ($this->value)) {
         $txt.=" checked";
       }
       $txt.='/> '.$this->label.'</label>';
+    }
+    else if ($this->fieldType="FILEUPLOAD") {
+      $txt.='<label class="" for="'.$this->form->getName().'_'.$this->getName().'"> ';
+      $txt.=$this->label;
+      $txt.='<span id="image_form">';
+      if ($this->value!=null) { 
+        $txt.='&nbsp; <img style="max-width:100px;max-height:100px" src="'.$files_dir."/files/logo/".$this->value.'"/>';
+        $txt.='&nbsp; <a href="#" id="del_logo">l&ouml;schen</a>';
+      }       
+      $txt.='</span>';
+      $txt.='</label>';
+      $txt.='<div id="upload_button">Nochmal bitte...</div>';
+      $txt.='<input type="hidden" name="'.$this->form->getName().'['.$this->getName().']" id="'.$this->form->getName().'_'.$this->getName().'" value="'.$this->value.'"/>';
+      $txt.='<script> 
+        jQuery(document).ready(function() {
+          var uploader = new qq.FileUploader({
+          element: document.getElementById("upload_button"),
+          action: "?q=admin/uploadFile",
+          params: {
+            domain_type:"logo",
+            resize:32
+          },
+          multiple:false,
+          debug:true,
+          onComplete: function(file, response, res) {
+            if (res.success) {
+              $("#image_form").html("<img src=\""+settings.files_url+"/files/logo/"+res.filename+"\"/>");
+              $("#AdminForm_site_logo").val(res.filename);
+            }
           }
+        });    
+        $("#del_logo").click(function() {
+          if (confirm("Wirklich Datei entfernen?")) {
+            churchInterface.setModulename("admin");
+            churchInterface.jsendWrite({func:"saveLogo", filename:null});
+            window.location.reload();         
+          }
+        });
+       });
+      </script>';
+      
+    }
     else return "FieldType $this->fieldType not implemented!";
     return $txt;          
   }
@@ -166,7 +214,7 @@ class CC_Model {
   private $header_small;
   private $help_url;
   
-  public $FieldTypes = array("TEXTAREA", "INPUT_REQUIRED", "INPUT_OPTIONAL", "EMAIL", "PASSWORD", "CHECKBOX");
+  public $FieldTypes = array("TEXTAREA", "INPUT_REQUIRED", "INPUT_OPTIONAL", "EMAIL", "PASSWORD", "CHECKBOX", "FILEUPLOAD");
   
   public function __construct($name, $validator, $help_url=null) {
     $this->name=$name;
@@ -174,8 +222,8 @@ class CC_Model {
     $this->help_url=$help_url;
   }  
   
-  public function addField($name, $class, $fieldType, $label="") {
-    $field=new CC_Field($this, $name, $class, $fieldType, $label);
+  public function addField($name, $class, $fieldType, $label="", $autofocus=false) {
+    $field=new CC_Field($this, $name, $class, $fieldType, $label, $autofocus);
     if (!in_array($fieldType, $this->FieldTypes))
       echo("FieldTyp $fieldType nicht vorhanden!");
     $this->fields[$name]=$field;     
@@ -211,9 +259,8 @@ class CC_Model {
       
       // Hole sie nun rein
       foreach ($_POST[$this->getName()] as $key=>$val) {
-        $this->fields[$key]->setValue($val);
+        $this->fields[$key]->setValue($val); 
       }      
-    
       // Validiere Daten
       $isValid=true;
       foreach ($this->fields as $field) {

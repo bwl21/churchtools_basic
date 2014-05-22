@@ -79,18 +79,18 @@ function churchresource_getOpenBookings() {
 function churchresource_getCurrentBookings() {
   $txt="";
   if (user_access("view","churchresource")) {      
-
     include_once("churchresource_db.inc");       
     
 	// Alle buchungen ab jetzt bis morgen mit Status 2
 	$res=getBookings(0, 1, "2");
-	
 	if ($res!=null) {
-  	$arr=array();
-      foreach ($res as $r) {
+  	  $arr=array();
+      $counter=0;
+  	  foreach ($res as $r) {
         $r->startdate=new DateTime($r->startdate);
         $r->enddate=new DateTime($r->enddate);
         foreach (getAllDatesWithRepeats($r,0,1) as $d) {
+          $counter=$counter+1;
           $a=array();
           $a["realstart"]=new DateTime($d->format('Y-m-d H:i:s'));
           $a["startdate"]=$r->startdate;
@@ -102,7 +102,7 @@ function churchresource_getCurrentBookings() {
           $a["id"]=$r->id;
           $arr[]=$a;
         }
-      }
+  	  }
       
       if ($arr!=null) {
         $resources=churchcore_getTableData("cr_resource");
@@ -112,6 +112,7 @@ function churchresource_getCurrentBookings() {
             if ($a["realstart"]>$b["realstart"]) return 1; else -1;
         }
         usort($arr, "cmp");
+        
         foreach ($arr as $val) {
           $txt.="<li><p><a href=\"?q=churchresource&id=".$val["id"]."\">".$val["text"]."</a> ";
           if ($val["repeat_id"]>0) $txt.='<img title="Serie startet vom '.$val["startdate"]->format('d.m.Y H:i').'" src="system/churchresource/images/recurring.png" width="16px"/> ';        
@@ -121,6 +122,7 @@ function churchresource_getCurrentBookings() {
           $txt="<ul>$txt</ul>"; 
       }
 	}
+	
   }	
   return $txt;
 }
@@ -147,8 +149,9 @@ global $user;
   
   $content="<html><head>";
   
-  drupal_add_js("system/assets/js/jquery.js");
-
+  drupal_add_js("system/assets/js/jquery-1.10.2.min.js");
+  drupal_add_js("system/assets/js/jquery-migrate-1.2.1.min.js");
+  
   drupal_add_js(drupal_get_path('module', 'churchcore') .'/shortcut.js'); 
   drupal_add_js('system/assets/js/jquery.history.js'); 
   
@@ -176,7 +179,7 @@ global $user;
    
   $content=$content.drupal_get_header();
   
-  $content=$content.'<link type="text/css" rel="stylesheet" media="all" href="'.drupal_get_path('module', 'churchcore').'/churchcore.css" />';
+  $content=$content.'<link type="text/css" rel="stylesheet" media="all" href="'.drupal_get_path('module', 'includes').'/churchtools.css" />';
   $content=$content.'<link type="text/css" rel="stylesheet" media="all" href="'.drupal_get_path('module', 'churchresource').'/cr_printview.css" />';
     
   $content=$content."</head><body>";
@@ -188,6 +191,16 @@ global $user;
   $content=$content."<div id=\"cdb_f_ilter\"></div></div> <div id=\"cdb_content\">Seite wird aufgebaut...</div>";
   $content=$content."</body></html>";
   echo $content;
+}
+
+function churchresource_getAuth() {
+  $cc_auth = array();
+  $cc_auth=addAuth($cc_auth, 201,'view', 'churchresource', null, 'ChurchResource sehen', 1);
+  $cc_auth=addAuth($cc_auth, 306,'create bookings', 'churchresource', null, 'Eigene Buchugsanfragen erstellen', 1);
+  $cc_auth=addAuth($cc_auth, 202,'administer bookings', 'churchresource', null, 'Alle Anfragen editieren, ablehnen, etc.', 1);
+  $cc_auth=addAuth($cc_auth, 203,'assistance mode', 'churchresource', null, 'Im Auftrag eines anderen Buchungen durchf&uuml;hren', 1);
+  $cc_auth=addAuth($cc_auth, 299,'edit masterdata', 'churchresource', null, 'Stammdaten editieren', 1);
+  return $cc_auth;
 }
 
 
@@ -205,6 +218,15 @@ function churchresource_getAuthForAjax() {
   	$res["write"]=true;
   	$res["editall"]=true;
   }
+  if (isset($auth["assistance mode"])) {
+    $res["assistance mode"]=true;
+  }
+  
+  // For assistance mode
+  if (user_access("create person", "churchdb")) {
+    $res["create person"]=true;
+  }
+  
   if (isset($auth["edit masterdata"])) {
     $res["admin"]=true;
   }
@@ -220,8 +242,8 @@ class CTChurchResourceModule extends CTAbstractModule {
   
   public function getMasterDataTablenames() {
     $res=array();
-    $res[1]=churchcore_getMasterDataEntry(1, "Ressource", "res", "cr_resource","resourcetype_id,sortkey,bezeichnung");
-    $res[2]=churchcore_getMasterDataEntry(2, "Ressourcen-Typ", "resTypes", "cr_resourcetype");
+    $res[1]=churchcore_getMasterDataEntry(1, "Ressource", "resources", "cr_resource","resourcetype_id,sortkey,bezeichnung");
+    $res[2]=churchcore_getMasterDataEntry(2, "Ressourcen-Typ", "resourceTypes", "cr_resourcetype");
     $res[3]=churchcore_getMasterDataEntry(3, "Status", "status", "cr_status");  
     return $res;
   }
@@ -237,6 +259,10 @@ class CTChurchResourceModule extends CTAbstractModule {
     $res["minutes"] = churchcore_getTableData("cr_minutes");
     $res["hours"] = churchcore_getTableData("cr_hours");
     $res["repeat"] = churchcore_getTableData("cc_repeat");
+    $res["cdb_bereich"] = churchcore_getTableData("cdb_bereich");
+    $res["cdb_status"] = churchcore_getTableData("cdb_status");
+    $res["cdb_station"] = churchcore_getTableData("cdb_station");
+   
     $res["modulename"] = $this->getModuleName();
     $res["modulespath"] = $this->getModulePath();
     $res["userid"] = $user->cmsuserid; // CMS Username#

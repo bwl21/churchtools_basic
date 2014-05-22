@@ -1,7 +1,95 @@
 <?php 
 
- include_once("system/churchcore/churchcore_db.inc");
+include_once("system/churchcore/churchcore_db.inc");
  
+ 
+function churchcal_handleMeetingRequest($cal_id, $params) {
+  global $base_url, $user;
+  
+  $i = new CTInterface();
+  $i->setParam("cal_id");
+  $i->setParam("person_id");
+  $i->setParam("mailsend_date");
+  $i->setParam("event_date");
+  $dt = new DateTime();
+  foreach ($params["meetingRequest"] as $id=>$param) {
+    $param["mailsend_date"]=$dt->format('Y-m-d H:i:s');
+    $param["person_id"]=$id;
+    $param["event_date"]=$params["startdate"];
+    $param["cal_id"]=$cal_id;
+    
+    $db=db_query('select mr.*, c.modified_pid from {cc_meetingrequest} mr, {cc_cal} c where 
+         c.id=mr.cal_id and mr.person_id=:person_id and mr.cal_id=:cal_id',
+       array(":person_id"=>$param["person_id"], ":cal_id"=>$param["cal_id"]))->fetch();
+    
+    if ($db==false) {
+      db_insert("cc_meetingrequest")->fields($i->getDBInsertArrayFromParams($param))->execute(false);
+      
+      $txt="<h3>Hallo [Spitzname]!</h3><p>";
+      
+      $txt.="<P>Du wurdest auf ".variable_get('site_name', 'drupal');
+        $txt.=' von <i>'.$user->vorname." ".$user->name."</i>";
+      $txt.=" f&uuml;r einen Termin angefragt. ";
+      
+      $db=db_query("select if (password is null and loginstr is null and lastlogin is null,1,0) as invite from {cdb_person}
+               where id=:id", array(":id"=>$id))->fetch();
+      if ($db!==false) {
+        if ($db->invite==1) {
+          include_once(drupal_get_path('module', 'churchdb').'/churchdb_ajax.inc');
+          churchdb_invitePersonToSystem($id);
+          $txt.="Da Du noch nicht kein Zugriff auf das System hast, bekommst Du noch eine separate E-Mail, mit der Du Dich dann anmelden kannst!";
+        }
+      
+        $txt.="<p>Zum Zu- oder Absagen bitte hier klicken:";      
+        $loginstr=churchcore_createPersonLoginStr($id);      
+        $txt.='<p><a href="'.$base_url.'?q=home&id='.$id.'&loginstr='.$loginstr.'" class="btn btn-primary">%sitename aufrufen</a>';      
+        churchcore_sendEMailToPersonids($id, "[".variable_get('site_name', 'drupal')."] Neue Termin-Anfrage", $txt, null, true);
+      }
+    }
+    else {
+/*      db_update("cc_meetingrequest")
+        ->fields($i->getDBInsertArrayFromParams($param))
+        ->condition("person_id", $param["person_id"], "=")
+        ->condition("cal_id", $param["cal_id"], "=")
+        ->execute(false);
+      churchcore_sendEMailToPersonids($id, "[".variable_get('site_name', 'drupal')."] Anpassung in einer Termin-Anfrage", "anpassung", null, true);*/
+    }    
+  }
+}
+
+function churchcal_updateMeetingRequest($params) {
+  global $user;
+  $i = new CTInterface();
+  $i->setParam("cal_id");
+  $i->setParam("person_id");
+  $i->setParam("mailsend_date");
+  $i->setParam("event_date");
+  $i->setParam("zugesagt_yn", false);
+  $i->setParam("response_date");
+  
+  $dt = new DateTime();
+
+  if ($params["zugesagt_yn"]=="") unset($params["zugesagt_yn"]);
+  
+  db_update("cc_meetingrequest")
+    ->fields($i->getDBInsertArrayFromParams($params))
+    ->condition("id", $params["id"], "=")
+    ->execute(false);
+}
+
+
+function churchcal_getMyMeetingRequest() {
+  global $user;
+  $db=db_query("select mr.*, mr.event_date, c.startdate, c.enddate, c.bezeichnung, concat(p.vorname,' ',p.name) as modified_name, p.id modified_pid from {cc_meetingrequest} mr, {cc_cal} c, {cdb_person} p 
+        where mr.person_id=:person_id and c.modified_pid=p.id and datediff(mr.event_date, now())>0
+      and mr.cal_id=c.id", array(":person_id"=>$user->id));
+  $res=array();
+  foreach ($db as $d) {
+    $res[$d->id]=$d; //TESTEN!!
+  }
+  return $res;
+}
+
 
 // Source gibt an, ob es aus einem anderen Modul kommt. Dies steuert die Zusammenarbeit
 function churchcal_createEvent($params, $source=null) {
@@ -31,8 +119,6 @@ function churchcal_createEvent($params, $source=null) {
       $res=churchcal_addException(array("cal_id"=>$new_id, 
                                "except_date_start"=>$exception["except_date_start"], 
                                "except_date_end"=>$exception["except_date_end"]));
-      if ($res["status"]!="success") 
-        return $res;
     }
   }  
   if (isset($params["additions"])) {
@@ -40,10 +126,12 @@ function churchcal_createEvent($params, $source=null) {
       $res=churchcal_addAddition(array("cal_id"=>$new_id, 
                                "add_date"=>$addition["add_date"],
                                "with_repeat_yn"=>$addition["with_repeat_yn"]));
-      if ($res["status"]!="success") 
-        return $res;
     }
   }  
+  // MeetingRequest
+  if (isset($params["meetingRequest"]))
+    churchcal_handleMeetingRequest($new_id, $params);
+  
   // BENACHRICHTIGE ANDERE MODULE
   if (($source==null) || ($source!="churchresource")) {
     include_once(drupal_get_path('module', 'churchresource') .'/churchresource_db.inc');
@@ -51,41 +139,20 @@ function churchcal_createEvent($params, $source=null) {
     churchresource_updateResourcesFromChurchCal($params, "churchcal");           
   }
   if (($source==null) || ($source!="churchservice")) {
-    if ((!isset($params["repeat_id"]) || ($params["repeat_id"]==0))) {
-      include_once(drupal_get_path('module', 'churchservice') .'/churchservice_db.inc');
-      $cs_params=array_merge(array(), $params); 
-      $cs_params["cal_id"]=$new_id;
-      $cs_params["id"]=null; 
-
-      
-      $o=(object) $params;
-      $o->startdate=new DateTime($o->startdate);
-      $o->enddate=new DateTime($o->enddate);
-      $diff=$o->enddate->format("U")-$o->startdate->format("U");
-      if (!isset($o->repeat_until)) $o->repeat_until=$o->enddate->format('Y-m-d H:i:s');
-      // Das mit repeat_id wird noch nicht von JavaScript angesteiuert. Das ist zu kompliziert mit
-      // Wiederholungsterminen, falls es €nderungen gibt. 
-      // Ist nur schon mal pro forma drin. Gibt Probleme bei Addition wg. Array/Object-Typ...
-      foreach (getAllDatesWithRepeats($o,-1000,+1000) as $d) {
-        $cs_params["startdate"]=$d->format('Y-m-d H:i:s');
-        $enddate=clone $d;
-        $enddate->modify("+$diff seconds"); 
-        $cs_params["enddate"]=$enddate->format('Y-m-d H:i:s');
-        // Wenn es kopiert werden soll
-        if ((isset($cs_params["copychurchservice"])) && ($cs_params["copychurchservice"]=="true")) {
-          churchservice_copyEventByCalId($params["orig_id"], $new_id, $cs_params["startdate"], true);
-        } 
-        // Ansonsten eben neu anlegen
-        else {
-          churchservice_saveEvent($cs_params, "churchcal");               
-        }
-      }
-    }      
+    include_once(drupal_get_path('module', 'churchservice') .'/churchservice_db.inc');
+    $cs_params=array_merge(array(), $params); 
+    $cs_params["cal_id"]=$new_id;
+    $cs_params["id"]=null; 
+    
+    churchservice_createEventFromChurchCal($cs_params, $source);
   }
+  
   return $new_id;  
 }  
- 
+
 function churchcal_isAllowedToEditCategory($category_id) {
+  if ($category_id==null) return false;
+ 
   $arr=churchcal_getAuthForAjax();
   if (!isset($arr["edit category"])) return false;
   if (isset($arr["edit category"][$category_id])) return true;
@@ -94,6 +161,8 @@ function churchcal_isAllowedToEditCategory($category_id) {
 
 function churchcal_updateEvent($params, $source=null) {
   $arr=array();
+  // Store all Exception and Addition changes for communication to other modules
+  $changes=array();
   
   // Nur Rechte prŸfen, wenn ich source bin, denn sonst hat das das Ursprungsmodul schon erledigt
   if ($source==null) {
@@ -147,19 +216,24 @@ function churchcal_updateEvent($params, $source=null) {
           $exc[$exception["id"]]->vorhanden=true;
         }
         else {
-          $res=churchcal_addException(array("cal_id"=>$params["id"], 
-                                   "except_date_start"=>$exception["except_date_start"], 
-                                   "except_date_end"=>$exception["except_date_end"]));
-          if ($res["status"]!="success") 
-            return $res;
+          $add_exc=array("cal_id"=>$params["id"], 
+                        "except_date_start"=>$exception["except_date_start"], 
+                        "except_date_end"=>$exception["except_date_end"]);
+          churchcal_addException($add_exc);
+          $changes["add_exception"][]=$add_exc;
         }
       }
     }  
     // Lšsche nun alle, die in der DB sind, aber nicht mehr vorhanden sind.
     if ($exc!=false) {
       foreach ($exc as $e) {
-        if (!isset($e->vorhanden))
-          churchcal_delException(array("id"=>$e->id));
+        if (!isset($e->vorhanden)) {
+          $del_exc=array("id"=>$e->id,
+                         "except_date_start"=>$e->except_date_start,
+                         "except_date_end"=>$e->except_date_end);
+          churchcal_delException($del_exc);
+          $changes["del_exception"][]=$del_exc;
+        }
       }
     }
 
@@ -173,29 +247,36 @@ function churchcal_updateEvent($params, $source=null) {
           $add[$addition["id"]]->vorhanden=true;
         }
         else {
-          $res=churchcal_addAddition(array("cal_id"=>$params["id"], 
+          $add_add=array("cal_id"=>$params["id"], 
                                    "add_date"=>$addition["add_date"],
-                                   "with_repeat_yn"=>$addition["with_repeat_yn"]));
-          if ($res["status"]!="success") 
-            return $res;
+                                   "with_repeat_yn"=>$addition["with_repeat_yn"]);
+          churchcal_addAddition($add_add);
+          $changes["add_addition"][]=$add_add;
         }
       }
     }  
     // Lšsche nun alle, die in der DB sind, aber nicht mehr vorhanden sind.
     if ($add!=false) {
       foreach ($add as $a) {
-        if (!isset($a->vorhanden))
-          churchcal_delAddition(array("id"=>$a->id));
+        if (!isset($a->vorhanden)) {
+          $del_add=array("id"=>$a->id, "add_date"=>$a->add_date);
+          churchcal_delAddition($del_add);
+          $changes["del_addition"][]=$del_add;
+        }
       }
     }
   }
+  
+  // MeetingRequest
+  if (isset($params["meetingRequest"]))
+    churchcal_handleMeetingRequest($params["id"], $params);
   
   // BENACHRICHTIGE ANDERE MODULE
   if (($source==null) || ($source!="churchresource")) {
     include_once(drupal_get_path('module', 'churchresource') .'/churchresource_db.inc');
     if ($source==null) $source="churchcal";
     $params["cal_id"]=$params["id"];
-    churchresource_updateResourcesFromChurchCal($params, $source);           
+    churchresource_updateResourcesFromChurchCal($params, $source, $changes);           
   }
   if (($source==null) || ($source!="churchservice")) {
     include_once(drupal_get_path('module', 'churchservice') .'/churchservice_db.inc');
@@ -204,7 +285,8 @@ function churchcal_updateEvent($params, $source=null) {
     $cs_params["id"]=null;   
     $cs_params["old_startdate"]=$old_cal->startdate;
     if ($source==null) $source="churchcal";
-    churchservice_saveEvent($cs_params, $source);    
+    
+    churchservice_updateEventFromChurchCal($cs_params, $source);    
   }        
 }  
 
@@ -237,10 +319,25 @@ function churchcal_getAuthForAjax() {
       }        
     }
   }
-  $ret["view churchservice"]=user_access("view", "churchservice") && user_access("edit events", "churchservice");
-  $ret["view churchdb"]=user_access("view", "churchdb");  
-  $ret["view alldata"]=user_access("view alldata", "churchdb")!=null;  
-  $ret["view churchresource"]=user_access("view", "churchresource");
+  
+  if (user_access("view", "churchservice"))
+    $ret["view churchservice"]=true;
+  
+  if (user_access("view", "churchdb")) {
+    $ret["view churchdb"]=true;
+    if (user_access("view alldata", "churchdb")!=null)
+      $ret["view alldata"]=true;
+  }
+  
+  if (user_access("view", "churchresource"))
+    $ret["view churchresource"]=true;
+  
+  if (user_access("create bookings", "churchresource"))
+    $ret["create bookings"]=true;
+  
+  if (user_access("administer bookings", "churchresource"))
+    $ret["administer bookings"]=true;
+  
   return $ret;    
 }
 
@@ -252,7 +349,7 @@ function churchcal_getAllowedCategories($withPrivat=true, $onlyIds=false) {
 
   $res=array();
   $auth=churchcal_getAuthForAjax();
-
+  
   $privat_vorhanden=false;
     
   foreach ($db as $category) {
@@ -296,9 +393,7 @@ function churchcal_getAllowedCategories($withPrivat=true, $onlyIds=false) {
 function churchcal_getCalPerCategory($params, $withintern=true) {
   $data=array();
   
-  date_default_timezone_set("Europe/Berlin");
-  
-  $res=db_query("select cal.*, e.id event_id, 
+  $res=db_query("select cal.*, e.id event_id, e.startdate event_startdate, e.created_by_template_id event_template_id, 
                  b.id booking_id, b.startdate booking_startdate, b.enddate booking_enddate, b.resource_id booking_resource_id, b.status_id booking_status_id 
                from {cc_cal} cal
                left join {cs_event} e on (cal.id=e.cc_cal_id) 
@@ -308,17 +403,50 @@ function churchcal_getCalPerCategory($params, $withintern=true) {
                order by category_id");
   $data=null;
   
-  // Agreggiere, falls es mehrere Bookings pro calendareintrag gibt.
+  // Agreggiere, falls es mehrere Bookings oder Events pro calendareintrag gibt.
   foreach ($res as $arr) {
     if (isset($data[$arr->id])) {
       $elem=$data[$arr->id];
     }
-    else $elem=$arr;
+    else {
+      $elem=$arr;
+      $req=churchcore_getTableData("cc_meetingrequest", null, "cal_id=".$arr->id);
+      if ($req!=false) {
+        $elem->meetingRequest=array();
+        foreach ($req as $r) {
+          $elem->meetingRequest[$r->person_id]=$r;
+        }
+      }      
+    }
     if ($arr->booking_id!=null) {      
       $elem->bookings[$arr->booking_resource_id]=
         array("id"=>$arr->booking_id, "minpre"=>(strtotime($arr->startdate)-strtotime($arr->booking_startdate))/60, 
                                       "minpost"=>(strtotime($arr->booking_enddate)-strtotime($arr->enddate))/60, 
                 "resource_id"=>$arr->booking_resource_id, "status_id"=>$arr->booking_status_id);
+    }
+    if ($arr->event_id!=null) { 
+      // Get additional Service text infos
+      $elem->events[$arr->event_id]=array("id"=>$arr->event_id, "startdate"=>$arr->event_startdate);
+      $es=db_query("select es.name, s.id, es.cdb_person_id, s.cal_text_template from {cs_service} s, {cs_eventservice} es where es.event_id=:event_id and
+                       es.service_id=s.id and es.valid_yn=1 and es.zugesagt_yn=1 
+                      and s.cal_text_template is not null and s.cal_text_template!=''",
+            array(":event_id"=>$arr->event_id));
+      foreach ($es as $e) {
+        if ($e!==false) {
+          if (strpos($e->cal_text_template, "[")===false) {
+            if (!isset($elem->service_texts)) $elem->service_texts=array();
+            $elem->service_texts[]=$e->cal_text_template;
+          }
+          if ($e->cdb_person_id!=null) {
+            include_once("system/churchdb/churchdb_db.inc");
+            $p=db_query("select * from {cdb_person} where id=:id", array(":id"=>$e->cdb_person_id))->fetch();          
+            if ($p!==false) {
+              if (!isset($elem->service_texts)) $elem->service_texts=array();
+              $elem->service_texts[]=churchcore_replacePersonTemplate($e->cal_text_template, $p);
+            }
+          }
+        }
+      }
     }
     $data[$arr->id]=$elem;      
   }

@@ -22,7 +22,7 @@ WikiView.prototype.renderSidebar = function () {
   var rows = new Array();
   
   var text=$("#editor").html();  
-  rows.push('<ul id="navlist" class="nav nav-list bs-docs-sidenav affix-top">');
+  rows.push('<ul id="navlist" class="hidden-phone nav nav-list bs-docs-sidenav affix-top">');
   rows.push('<li><a href="#start">Nach oben</a>');
   reg = new RegExp("<h(1|2)>(.*)</h(1|2)>","gi");  
   var result;
@@ -42,7 +42,8 @@ WikiView.prototype.cancelEditMode = function() {
     editor=false;
   }  
 };
-      
+
+
 // Turn off automatic editor creation first.
 WikiView.prototype.editMode = function (setToEdit) {
   var t=this;
@@ -60,22 +61,39 @@ WikiView.prototype.editMode = function (setToEdit) {
                         { name: 'editing', groups: [ 'find', 'spellchecker' ], items: [ 'Find', 'Replace', '-', 'Scayt' ] },
                         { name: 'links', items: [ 'Link', 'Unlink'] },
                         { name: 'insert', items: [ 'Image', /*'Flash', */'Table', 'HorizontalRule', 'Smiley', 'SpecialChar', 'PageBreak', 'Iframe', 'MediaEmbed' ] },
-                        { name: 'tools', items: [ 'Maximize', 'ShowBlocks', 'filebrowser' ] },
+                        { name: 'tools', items: [ 'Maximize', 'ShowBlocks', 'filebrowser', 'Source' ] },
                         { name: 'others', items: [ '-' ] },
                         '/',
                         { name: 'styles', items: [ 'Format', 'Font', 'FontSize' ] },
                         { name: 'basicstyles', groups: [ 'basicstyles', 'cleanup' ], items: [ 'Bold', 'Italic', 'Underline', 'Strike', /*'Subscript', 'Superscript', */'-', 'RemoveFormat' ] },
                         { name: 'colors', items: [ 'TextColor', 'BGColor' ] },
                         { name: 'paragraph', groups: [ 'list', 'indent', 'align' ], items: [ 'NumberedList', 'BulletedList', '-', 'Outdent', 'Indent', '-', 'JustifyLeft', 'JustifyCenter', 'JustifyRight', 'JustifyBlock' ] }
-                      ]
-    });    
-    $("#editor").focus();   
+                      ],
+      extraPlugins : 'tableresize'
+    });
+    //CKEDITOR.config.scayt_autoStartup = true;
+    CKEDITOR.config.scayt_sLang = 'de_DE';
+    $("#editor").focus();
+    drafter=new Drafter("wiki", {
+      getContent: function() {
+        if  (CKEDITOR.instances.editor!=null)
+          return CKEDITOR.instances.editor.getData();
+        else return null;
+      },
+      setContent: function(content) { 
+        CKEDITOR.instances.editor.setData(content);
+      },
+      setStatus: function(txt) {churchInterface.setStatus(txt, true);} 
+    });
+    CKEDITOR.instances.editor.on('change', function() {  churchInterface.clearStatus();  });
+
   }
   else if ((edit) || (!setToEdit)){
     edit=false;
     $("a.editwiki").html("Text editieren");
     var text=CKEDITOR.instances.editor.getData();
     if (text==currentPage.text) { 
+      drafter.clear();
       alert("Keine neue Version, da nichts angepasst wurde.");
       t.renderPage(currentPage);
     }
@@ -83,8 +101,8 @@ WikiView.prototype.editMode = function (setToEdit) {
       churchInterface.jsendWrite({func:"save", doc_id:currentPage.doc_id, wikicategory_id:currentPage.wikicategory_id, val:CKEDITOR.instances.editor.getData()},
         function(ok) {
           if (ok) {
-            //window.location.reload();
             currentPage.text=text;
+            drafter.clear();
           }
           t.renderPage(currentPage);
         }, null, false);
@@ -117,6 +135,21 @@ WikiView.prototype.renderFiles = function() {
   else {
     t.renderFilelist("", currentPage.file, null, null, 50);
   }
+
+  $("div.filelist span.tooltip-file").each(function() {
+    var tooltip=$(this);
+    tooltip.tooltips({
+      data:{id:tooltip.attr("data-id") 
+           },
+      render:function(data) {
+        return t.renderTooltipForFiles(tooltip, currentPage.file[0].files[data.id], masterData.auth.edit[currentPage.wikicategory_id]);  
+      },      
+      afterRender: function(element, data) {
+        return t.tooltipCallbackForFiles(data.id, element, currentPage.file, 0);
+      }
+    });    
+  });    
+  
   t.addTableContentCallbacks("#cdb_content");
 };
 
@@ -163,18 +196,23 @@ WikiView.prototype.renderPage = function (content) {
   rows.push("<p class='pull-right' style='text-align:right'><small>");
   if (currentPage.modified_date!=null)
     if (currentPage.history==null)
-      rows.push('<a href="#" class="viewversion">Version '+currentPage.version_no+' vom '+currentPage.modified_date.toDateEn(true).toStringDe(true)+
-         " - "+currentPage.vorname+" "+currentPage.name+"</a>");
+      if (settings.user.id!=-1)
+        rows.push('<a href="#" class="viewversion">Version '+currentPage.version_no+' vom '+currentPage.modified_date.toDateEn(true).toStringDe(true)+
+           " - "+currentPage.vorname+" "+currentPage.name+"</a>");
+      else  
+        rows.push('Letzte &Auml;nderung vom '+currentPage.modified_date.toDateEn(true).toStringDe(true));
     else {
       rows.push(form_renderSelect({data:currentPage.history, sort:false, selected:currentPage.version_no, controlgroup:false, cssid:"selectHistory"}));
     }
   else
     rows.push("Neu");
 
-  if ((masterData.encrypted==null) || (masterData.encrypted==false))
-    rows.push('<br><a href="http://intern.churchtools.de/?q=help&doc=Verschluesselung" target="_clean">unverschl&uuml;sselt</a>');
-  else
-    rows.push("<br>verschl&uuml;sselt");
+  if (settings.user.id!=-1) {
+    if ((masterData.encrypted==null) || (masterData.encrypted==false))
+      rows.push('<br><a href="http://intern.churchtools.de/?q=help&doc=Verschluesselung" target="_clean">unverschl&uuml;sselt</a>');
+    else
+      rows.push("<br>verschl&uuml;sselt");
+  }
   if (!t.printview)
     rows.push(' - <a href="?q=churchwiki/printview#WikiView/filterWikicategory_id:'+currentPage.wikicategory_id+'/doc:'+currentPage.doc_id+'" target="_clean">Druckansicht</a>');
   rows.push("</small>");
@@ -303,13 +341,21 @@ WikiView.prototype.renderNavi = function () {
     var navi = new CC_Navi();
     //navi.addEntry(currentPage.wikicategory_id==0,"alistview0","Standard");
     
+    var dabei=false;
     $.each(churchcore_sortMasterData(masterData.wikicategory), function(k,a) {
-      if (masterData.auth.view[a.id])
+      if (masterData.auth.view[a.id] && a.in_menu_yn==1) {
+        if (currentPage.wikicategory_id==a.id) dabei=true;
         navi.addEntry(currentPage.wikicategory_id==a.id,"alistview"+a.id,masterData.wikicategory[a.id].bezeichnung);
+      }
     });
+    if (!dabei && masterData.wikicategory[currentPage.wikicategory_id]!=null) 
+      navi.addEntry(true,"alistview"+currentPage.wikicategory_id,
+          masterData.wikicategory[currentPage.wikicategory_id].bezeichnung);
+    
     if (masterData.auth.admin)
       navi.addEntry(false, "editCategory", "Kategorien anpassen");
-    navi.renderDiv("cdb_navi", churchcore_handyformat());
+    if (navi.countElement()>1)
+      navi.renderDiv("cdb_navi", churchcore_handyformat());
     
     //this.implantStandardFilterCallbacks(this, "cdb_search");         
     
@@ -336,7 +382,7 @@ WikiView.prototype.loadDoc = function(doc_id, wikicategory_id, version_no) {
   edit=false;
   churchInterface.jsendWrite({func:"load", doc_id:doc_id, wikicategory_id:wikicategory_id, version_no:version_no}, function(ok, data) {
     if (ok) {
-      if (data==null) {
+      if (data==null || !data) {
         currentPage = new Object();
         currentPage.text="Neue Seite";
         currentPage.wikicategory_id=wikicategory_id;
@@ -413,29 +459,19 @@ WikiView.prototype.renderView = function() {
   }
 };
 
-WikiView.prototype.renderTooltip = function(tooltip, divid) {
-  var id=tooltip.attr("tooltip");
-  var f=currentPage.file[0].files[id];
-  return this.renderTooltipForFiles(tooltip, divid, f, masterData.auth.edit[currentPage.wikicategory_id]);  
-};
-
-WikiView.prototype.tooltipCallback = function(id, tooltip) {
-  return this.tooltipCallbackForFiles(id, tooltip, currentPage.file, 0);
-};
-
 WikiView.prototype.initView = function() {
   var t=this;
   if ($("#printview").val()=="true")
     t.printview=true;
   if (t.filter["filterWikicategory_id"]==null) {
-    t.filter["filterWikicategory_id"]=0;
     if (masterData.auth.view!=null)  {
-      var i=99999;
-      $.each(masterData.auth.view, function(k,a) {
-        if (a<i) i=a;
+      $.each(churchcore_sortMasterData(masterData.wikicategory), function(k,a) {
+        if (masterData.auth.view[a.id] && t.filter["filterWikicategory_id"]==null)
+          t.filter["filterWikicategory_id"]=a.id;
       });
-      t.filter["filterWikicategory_id"]=i;
     }
+    if (t.filter["filterWikicategory_id"]==0)
+      t.filter["filterWikicategory_id"]=0;
   }
 
   var refresh=false;

@@ -6,7 +6,9 @@ function login_main() {
   
   if ((isset($config["admin_message"])) && ($config["admin_message"]!=""))
     addErrorMessage($config["admin_message"]);
-    
+  if ((isset($_GET["message"])) && ($_GET["message"]!=""))
+    addInfoMessage($_GET["message"]);
+  
   // Sicherstellen, dass keiner eingelogt ist!
   if (!userLoggedIn()) {    
     include_once("system/includes/forms.php");
@@ -14,7 +16,7 @@ function login_main() {
       addInfoMessage($config["login_message"], true);
     $model = new CC_Model("LoginForm", "prooveLogin", "Login");
     $model->setHeader(t("login.headline"), t("please.fill.following.fields"));    
-    $model->addField("email","", "INPUT_REQUIRED",t("email.or.username"));
+    $model->addField("email","", "INPUT_REQUIRED",t("email.or.username"), true);
     $model->addField("password","", "PASSWORD",t("password"));
     if ((!isset($config["show_remember_me"])) || ($config["show_remember_me"]==1)) 
       $model->addField("rememberMe","", "CHECKBOX",t("remember.me"));
@@ -32,7 +34,8 @@ function login_main() {
       } 
       else {              
         $newpwd=random_string(8);
-        db_query("update {cdb_person} set password='".md5($newpwd)."' where email='".$_GET["email"]."'");
+        $scrambled_password=scramble_password($newpwd);
+        db_query("update {cdb_person} set password='".$scrambled_password."' where email='".$_GET["email"]."'");
         $content="<h3>Hallo!</h3><p>Ein neues Passwort wurde f&uuml;r die E-Mail-Adresse <i>".$_GET["email"]."</i> angefordert: $newpwd";
         churchcore_systemmail($_GET["email"], "[".variable_get('site_name')."] Neues Passwort", $content, true, 1);
         churchcore_sendMails(1);
@@ -59,8 +62,8 @@ function login_main() {
     // PrŸfe, ob Login Ÿber URL mit loginstr erfolgen soll
     //e.g. http://localhost:8888/bootstrap/?q=profile&loginstr=123&id=8
     else if ((isset($_GET["loginstr"])) && ($_GET["loginstr"]!="") && (isset($_GET["id"]))) {
-      // Lšsche alte cc_loginurrls die Šlter sind als 7 tage
-      db_query("delete from {cc_loginstr} where DATEDIFF( current_date, create_date ) > 5");
+      // Lšsche alte cc_loginurrls die Šlter sind als 14 tage
+      db_query("delete from {cc_loginstr} where DATEDIFF( current_date, create_date ) > 13");
       $sql="select * from {cc_loginstr} where loginstr=:loginstr and person_id=:id";      
       $res=db_query($sql, array(":loginstr"=>$_GET["loginstr"], ":id"=>$_GET["id"]))->fetch();
       if ($res==false) {
@@ -152,7 +155,7 @@ function prooveLogin($form) {
   }
   // Kein Passwort stimmte
   else {
-    $form->fields["password"]->setError('<a href="#" id="newpwd">'.t('forgot.password').'</a>');
+    $form->fields["password"]->setError(t('wrong.password').' <a href="#" id="newpwd">'.t('forgot.password').'</a>');
     ct_log("Login vergeblich: ".$form->fields["email"]->getValue()." mit falschem Passwort",2,"-1", "login");
     return false;                
   }
@@ -178,8 +181,8 @@ function login_user($ret, $rember_me=false) {
   $ret->auth=getUserAuthorization($ret->id);
   $_SESSION["user"]=$ret;
 
-  // 7 Tage hŠlt der Login
-  $ablaufDesCookies = time() + 60 * 60 * 24 * 7;
+  // 6 Tage hŠlt der Login
+  $ablaufDesCookies = time() + 60 * 60 * 24 * 6;
   
   setcookie("RememberMe", $rember_me, $ablaufDesCookies);            
   $_SESSION["sessionid"]=random_string();
@@ -205,12 +208,14 @@ function login_user($ret, $rember_me=false) {
     if ($family!=null) $_SESSION["family"]=$family;
   }
   
-  ct_log("Login erfolgreich: ".$ret->email." mit ".$_SERVER['HTTP_USER_AGENT'],2,-1, "login");
+  ct_log("Login erfolgreich: ".$ret->email." mit ".(isset($_SERVER['HTTP_USER_AGENT'])?$_SERVER['HTTP_USER_AGENT']:"Unkown Browser!"),2,-1, "login");
   
   // Wenn es Ummelden war, dann nicht weiterleiten, denn sonst wŠre das ja wieder Login.
   if ($q!=$q_orig) {
     header("Location: ?q=$q_orig");
   }
+  else if ($q=="login")
+    header("Location: ?q=".variable_get("site_startpage", "home"));
 }
 
 ?>

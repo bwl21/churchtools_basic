@@ -3,26 +3,37 @@
 
 
 //Constructor
-function StandardTableView() {
+function StandardTableView(options) {
+  var t=this;
   AbstractView.call(this);
+  
   this.name="StandardTableView";
   this.init=false;
   this.filter=new Object();
   this.furtherFilterVisible=false;
   this.listOffset=0;
   this.sortVariable="id";
+  this.availableRowCounts=[10, 25, 50, 200];
+  this.showCheckboxes=true;
+
+  // Number of entries currently visible
+  this.counter=0;
   // Der letzte geöffnet Eintrag, wird gemerkt, damit er nach einem renderList()
   // auch wieder angezeigt wird.
-  
-  this.tooltipTimer=null;
-  this.tooltip_hold=false;
-  this.tooltip_elem=null;
   
   this.testTimer=null; // Zeitmessung
   this.renderListTimer=null;
   this.listViewAggregate=false;
   this.listViewTableHeight=null; // Wenn ja, hat die Tabelle eien fixen Titel
+  
+  this.showPaging=true;
+  this.rowNumbering=true;
 
+  if (options!=null) {
+    $.each(options, function(k,a) {
+      t[k]=a;
+    });
+  }
 }
 Temp.prototype = AbstractView.prototype;
 StandardTableView.prototype = new Temp();
@@ -57,7 +68,8 @@ StandardTableView.prototype.renderView = function(withMenu) {
     }
     this.renderListMenu();    
     this.renderFilter();
-    $("#searchEntry").focus();
+    if (!churchcore_touchscreen())
+      $("#searchEntry").focus();
   }
   else {
     this.renderMenu();    
@@ -235,7 +247,7 @@ StandardTableView.prototype.addFurtherListCallbacks = function() {
 
 StandardTableView.prototype.renderOneListEntry = function(id) {
   
-}
+};
 
 
 /*
@@ -245,14 +257,9 @@ StandardTableView.prototype.renderOneListEntry = function(id) {
  */
 StandardTableView.prototype.renderList = function(entry, newSort) {
   t=this;
-  if (t.renderListTimer==null)
-    t.renderListTimer=window.setTimeout(function() {
-
-  
+   
   var rows = new Array();
   
-  if (debug) t.startTimer();
- 
   // Wenn nur ein Eintrag neu gerendert werden soll
   if (entry!=null) {
     if (t.checkFilter(entry)) {      
@@ -262,7 +269,7 @@ StandardTableView.prototype.renderList = function(entry, newSort) {
       else 
         rows[rows.length] = "<td><input type=\"checkbox\" id=\"check" + entry.id +
         "\" class=\"checked\">";      
-      if (t.groupingFunction(entry)==null) {
+      if (t.rowNumbering && t.groupingFunction(entry)==null) {
         rows.push("<td><a href=\"\" id=\"detail" + entry.id + "\">" + $("tr[id="+entry.id+"]").find("td").next().first().text()+"</a>");
       }
 
@@ -280,205 +287,190 @@ StandardTableView.prototype.renderList = function(entry, newSort) {
   }
   // Wenn die ganze Tabelle neu gerendert werden soll
   else {
-    var current_id = 0;    
-    listObject=t.getData(true, newSort);    
-
-    $("#cdb_content").html("Tabellenaufbau...");    
-    
-    if ((masterData.settings==null) || (masterData.settings.listViewTableHeight==null) || (masterData.settings.listViewTableHeight==0))
-      t.listViewTableHeight=null;
-    else 
-      t.listViewTableHeight=646;
-
-    if (masterData.settings==null) masterData.settings=new Object();    
-    if (masterData.settings["listMaxRows"+t.name]==null)
-      masterData.settings["listMaxRows"+t.name]=25;
-    else masterData.settings["listMaxRows"+t.name]=masterData.settings["listMaxRows"+t.name]*1;
-    
-    // Wenn es Handyformat ist dann zeige immer nur 10 Zeilen, außer bei der Ressourcen-WeekView, 
-    // denn hier macht es Sinn, das man alle sieht.
-    if ((churchcore_handyformat()) && (churchInterface.getCurrentView().name!="WeekView"))
-      masterData.settings["listMaxRows"+t.name]=10;    
-
-    var header=t.getListHeader();
-    
-    if (listObject == null) {
-      rows[rows.length] = "Keinen Eintrag gefunden.";
-    }
-    else {
-      rows[rows.length] = '<div style="" id="DivAddressTable"><table class="view table table-bordered table-condensed table-striped" style="tab_le-layout:fixed;margin-bottom:0px;" id="AddressTable">';
-      rows[rows.length] = '<thead><tr><th width="12px"><input type="checkbox" class="checked" id="markAll">';      
-        rows.push(header);
-      rows.push('</thead>');
+    if (t.renderListTimer==null)
+      t.renderListTimer=window.setTimeout(function() {
       
-      if (t.listViewTableHeight!=null) {
-        rows.push('</table></div>');
-        
-        rows.push('<div style="max-height:'+t.listViewTableHeight+'px; overflow-y:auto; overflow-x:auto">');
-        rows.push('<table class="view table table-bordered table-condensed ta_ble-striped" style="margin-bottom:0px" id="AddressTableChild">');        
-      }
+      if (debug) t.startTimer();
       
-      rows.push('<tbody>');
-      var startConcat = new Date();
-      var counter = 0; 
-      var lastGrouping=null;
+      var current_id = 0;    
+      listObject=t.getData(true, newSort);    
+  
+      $("#cdb_content").html("Tabellenaufbau...");    
       
-      $.each(listObject, function(k, entry) {
-        if ((entry!=null) && (t.checkFilter(entry))) {
-          counter++;
-          if ((counter>=t.listOffset) && (counter<=masterData.settings["listMaxRows"+t.name]+t.listOffset)) {
-
-            entry_txt=t.renderListEntry(entry);
-            if (entry_txt==null) 
-              counter--;
-            else {
-              var r = t.groupingFunction(entry);
-              if (r!=lastGrouping) {
-                lastGrouping=r;
-                rows.push('<tr class="grouping"><td class="grouping" align="center" colspan="'+(t.getCountCols())+'">'+r);
-              }
-              
-              rows.push("<tr class=\"data\" id=\"" + entry.id + "\">");                      
-              rows.push("<td><input type=\"checkbox\" class=\"checked\" id=\"check" + entry.id + "\"");
-              if (entry.checked) rows.push(" checked=checked"); 
-              rows.push(">");
-              
-              if (lastGrouping==null)
-                rows.push("<td><a href=\"\" id=\"detail" + entry.id + "\">" + counter + "</a>");         
-              rows.push(entry_txt);
-              
-              current_id = entry.id;
-            }  
-          }
-        } 
-      });    
-      
-      rows.push('<tbody>');
-      rows.push("</table>");
-      rows.push("</div>");
-
-      rows.push('<table class="table table-bordered table-condensed">');
-      if (counter>=masterData.settings["listMaxRows"+t.name]) {
-        rows[rows.length] = "<tr><td>Zeige "+masterData.settings["listMaxRows"+t.name]+" von "+counter+" gefundenen Eintr&auml;gen";
-        rows.push("&nbsp; &nbsp; &nbsp;Bl&auml;ttern: <a id=\"offset0\" href=\"#\"><<</a>&nbsp;|&nbsp;<a id=\"offsetMinus\" href=\"#\"><</a>&nbsp;|&nbsp;<a id=\"offsetPlus\" href=\"#\">></a>");
-      }  
+      if ((masterData.settings==null) || (masterData.settings.listViewTableHeight==null) || (masterData.settings.listViewTableHeight==0))
+        t.listViewTableHeight=null;
       else 
-        rows[rows.length] = "<tr><td>Zeige "+counter+" gefundene Eintr&auml;ge";
+        t.listViewTableHeight=646;
   
-      if (!churchcore_handyformat()) {
-        rows.push("&nbsp; &nbsp; &nbsp; &nbsp;(Zeilenanzahl: ");
-        rows.push('<a href="#" class="changemaxrow" data-id="10">10</a>&nbsp;|&nbsp;');
-        rows.push('<a href="#" class="changemaxrow" data-id="25">25</a>&nbsp;|&nbsp;');
-        rows.push('<a href="#" class="changemaxrow" data-id="50">50</a>&nbsp;|&nbsp;');
-        rows.push('<a href="#" class="changemaxrow" data-id="200">200</a>)');
-      }
-      rows.push("&nbsp; &nbsp; &nbsp; ");
-      if ((masterData.settings["listMaxRows"+t.name]<=20) || (counter<=20))
-        rows.push("&nbsp;<a href=\"#\" id=\"showAll\">alle &ouml;ffnen</a>");
-      rows.push("&nbsp; &nbsp; <a href=\"#\" id=\"hideAll\">alle schlie&szlig;en</a>");      
-      rows.push('</table>');
+      if (masterData.settings==null) masterData.settings=new Object();    
+      if (masterData.settings["listMaxRows"+t.name]==null)
+        masterData.settings["listMaxRows"+t.name]=25;
+      else masterData.settings["listMaxRows"+t.name]=masterData.settings["listMaxRows"+t.name]*1;
       
-      if (t.listViewTableHeight!=null) rows.push("<p></p>");
-
-      rows.push(t.addSecondMenu());      
-    }
-    $("#cdb_content").html(rows.join(""));
-    
-    if (debug) t.endTimer("renderTableView");
-    
-    calcHeaderWidth(current_id);
-
-    //if (counter==1) {
-      // Entry anzeigen, wenn alles geladen ist, sonst lädt er die Detaildaten auch noch, obwohl später vielleicht noch
-      // mehr Leute kommen, die passend könnten. Außer es ist eine Id, da wird es nur einen geben
-     // if (t.filter["searchEntry"]>0)
-       // t.renderEntryDetail(current_id);
-    //}  
+      // Wenn es Handyformat ist dann zeige immer nur 10 Zeilen, außer bei der Ressourcen-WeekView, 
+      // denn hier macht es Sinn, das man alle sieht.
+      if ((churchcore_handyformat()) && (churchInterface.getCurrentView().name!="WeekView"))
+        masterData.settings["listMaxRows"+t.name]=10;    
   
-    // Callbacks auf die Header und Footer der Tabelle
-    $("#cdb_content input.checked").click(function (_content_input) {
-      var s=$(this).attr("id");
-      if (s=="markAll") {
-        if ((counter>=masterData.settings["listMaxRows"+t.name]) && (confirm("Es sind mehr Eintraege vorhanden, als momentan angezeigt. Sollen alle Eintraege markiert werden?"))) {
-          bol=$(this).is(":checked");
-          $.each(listObject, function(k,a) {
-            if ((a!=null) && (t.checkFilter(a))) {
-              a.checked=bol;
-            }  
-          });
-        }  
-
-        if ($(this).is(":checked")) {          
-          $("#cdb_content input.checked").not("#markAll").each(function(a) {
-            $(this).attr("checked","true");
-            t.getData(false)[$(this).attr("id").substr(5,99)]["checked"]=true;
-          });  
-        }  
-        else {   
-          $("#cdb_content input.checked").not("#markAll").each(function(a) {
-            $(this).removeAttr("checked");
-            t.getData(false)[$(this).attr("id").substr(5,99)]["checked"]=false;
-          }); 
-        }
-      }  
-      else t.getData(false)[$(this).attr("id").substr(5,99)]["checked"]=$(this).is(":checked");
-    });
-    $("#cdb_content a").click(function (_content_a) {
-      if ($(this).attr("id")=="orderby") loadList("","",$(this).attr("href"));
-      else if ($(this).attr("id")=="offset0") {
-        t.listOffset=0;
-        t.renderList();
+      var header=t.getListHeader();
+      
+      if (listObject == null) {
+        rows[rows.length] = "Keinen Eintrag gefunden.";
       }
-      else if ($(this).attr("id")=="offsetMinus") {
-        t.listOffset=t.listOffset-masterData.settings["listMaxRows"+t.name];
-        if (t.listOffset<0) t.listOffset=0;
-        t.renderList();
-      }
-      else if ($(this).attr("id")=="offsetPlus") {
-        t.listOffset=t.listOffset+masterData.settings["listMaxRows"+t.name];
-        t.renderList();
-      }
-      else if ($(this).attr("id")=="showAll") {
-        n=0; j=0;
-        $.each(listObject, function(k, a) {
-          n++;
-          if (t.checkFilter(a)) {
-            j++;
-            if ((n>=t.listOffset) && (j<=masterData.settings["listMaxRows"+t.name])) {
-              t.renderEntryDetail(a.id);
-            } 
-          }
-        });   
-      }
-      else if ($(this).attr("id")=="hideAll") {
-        $.each(listObject, function(k, entry) {
-          entry.open=false;
-        });
+      else {
+        var classes='view '+t.name+' table table-bordered table-condensed ';
+        rows[rows.length] = '<div style="" id="DivAddressTable"><table class="'+classes+'table-striped" style="tab_le-layout:fixed;margin-bottom:0px;" id="AddressTable">';
+        rows[rows.length] = '<thead>';
+        if (t.showCheckboxes)
+          rows.push('<tr><th width="12px"><input type="checkbox" class="checked" id="markAll">');      
+          rows.push(header);
+        rows.push('</thead>');
         
+        if (t.listViewTableHeight!=null) {
+          rows.push('</table></div>');
+          
+          rows.push('<div style="min-height:300px; max-height:'+t.listViewTableHeight+'px; overflow-y:auto; overflow-x:auto">');
+          rows.push('<table class="'+classes+'" style="margin-bottom:0px" id="AddressTableChild">');        
+        }
+        
+        rows.push('<tbody>');
+        t.counter = 0; 
+        var lastGrouping=null;
+        
+        $.each(listObject, function(k, entry) {
+          if ((entry!=null) && (t.checkFilter(entry))) {
+            t.counter++;
+            if ((t.counter>=t.listOffset) && (t.counter<=masterData.settings["listMaxRows"+t.name]+t.listOffset)) {
+  
+              entry_txt=t.renderListEntry(entry);
+              if (entry_txt==null) 
+                t.counter--;
+              else {
+                var r = t.groupingFunction(entry);
+                if (r!=lastGrouping) {
+                  lastGrouping=r;
+                  rows.push('<tr class="grouping"><td class="grouping" align="center" colspan="'+(t.getCountCols())+'">'+r);
+                }
+                
+                rows.push("<tr class=\"data\" id=\"" + entry.id + "\">");   
+                if (t.showCheckboxes) {
+                  rows.push("<td width=\"12px\"><input type=\"checkbox\" class=\"checked\" id=\"check" + entry.id + "\"");
+                  if (entry.checked) rows.push(" checked=checked"); 
+                  rows.push(">");
+                }
+                
+                if (t.rowNumbering && lastGrouping==null)
+                  rows.push("<td><a href=\"\" id=\"detail" + entry.id + "\">" + t.counter + "</a>");         
+                rows.push(entry_txt);
+                
+                current_id = entry.id;
+              }  
+            }
+          } 
+        });    
+        
+        rows.push('<tbody>');
+        rows.push("</table>");
+        rows.push("</div>");
+  
+        rows.push('<table class="table table-bordered table-condensed"><tr><td>');
+        
+        if (t.counter>=masterData.settings["listMaxRows"+t.name]) {
+          rows[rows.length] = "Zeige "+masterData.settings["listMaxRows"+t.name]+" von "+t.counter+" gefundenen Eintr&auml;gen";
+          rows.push("&nbsp; &nbsp; &nbsp;Bl&auml;ttern: <a id=\"offset0\" href=\"#\"><<</a>&nbsp;|&nbsp;<a id=\"offsetMinus\" href=\"#\"><</a>&nbsp;|&nbsp;<a id=\"offsetPlus\" href=\"#\">></a>");
+        }  
+        else 
+          rows[rows.length] = "Zeige "+t.counter+" gefundene Eintr&auml;ge";
+  
+        if (t.showPaging) {    
+          if (!churchcore_handyformat()) {
+            rows.push("&nbsp; &nbsp; &nbsp; &nbsp;(Zeilenanzahl: ");
+            $.each(t.availableRowCounts, function(i,k) {
+              rows.push('<a href="#" class="changemaxrow" data-id="'+k+'">'+k+'</a>&nbsp;|&nbsp;');              
+            });
+          }
+          rows.push("&nbsp; &nbsp; &nbsp; ");
+          if ((masterData.settings["listMaxRows"+t.name]<=20) || (t.counter<=20))
+            rows.push("&nbsp;<a href=\"#\" id=\"showAll\">alle &ouml;ffnen</a>");
+          rows.push("&nbsp; &nbsp; <a href=\"#\" id=\"hideAll\">alle schlie&szlig;en</a>");
+        }
+        rows.push('</table>');
+        
+        if (t.listViewTableHeight!=null) rows.push("<p></p>");
+  
+        rows.push(t.addSecondMenu());      
+      }
+      $("#cdb_content").html(rows.join(""));
+      
+      if (debug) t.endTimer("renderTableView");
+      
+      calcHeaderWidth(current_id);
+  
+      //if (t.counter==1) {
+        // Entry anzeigen, wenn alles geladen ist, sonst lädt er die Detaildaten auch noch, obwohl später vielleicht noch
+        // mehr Leute kommen, die passend könnten. Außer es ist eine Id, da wird es nur einen geben
+       // if (t.filter["searchEntry"]>0)
+         // t.renderEntryDetail(current_id);
+      //}  
+    
+      // Callbacks auf die Header und Footer der Tabelle
+      $("#cdb_content a").click(function (_content_a) {
+        if ($(this).attr("id")=="orderby") loadList("","",$(this).attr("href"));
+        else if ($(this).attr("id")=="offset0") {
+          t.listOffset=0;
+          t.renderList();
+        }
+        else if ($(this).attr("id")=="offsetMinus") {
+          t.listOffset=t.listOffset-masterData.settings["listMaxRows"+t.name];
+          if (t.listOffset<0) t.listOffset=0;
+          t.renderList();
+        }
+        else if ($(this).attr("id")=="offsetPlus") {
+          t.listOffset=t.listOffset+masterData.settings["listMaxRows"+t.name];
+          t.renderList();
+        }
+        else if ($(this).attr("id")=="showAll") {
+          n=0; j=0;
+          $.each(listObject, function(k, a) {
+            n++;
+            if (t.checkFilter(a)) {
+              j++;
+              if ((n>=t.listOffset) && (j<=masterData.settings["listMaxRows"+t.name])) {
+                t.renderEntryDetail(a.id);
+              } 
+            }
+          });   
+        }
+        else if ($(this).attr("id")=="hideAll") {
+          $.each(listObject, function(k, entry) {
+            entry.open=false;
+          });
+          
+          t.renderList();
+        }      
+      });
+      $("#cdb_content a.changemaxrow").click(function () {    
+        masterData.settings["listMaxRows"+t.name]=$(this).attr("data-id");
         t.renderList();
-      }      
-    });
-    $("#cdb_content a.changemaxrow").click(function () {    
-      masterData.settings["listMaxRows"+t.name]=$(this).attr("data-id");
-      t.renderList();
-      churchInterface.jsendWrite({func:"saveSetting", sub:"listMaxRows"+t.name, val:$(this).attr("data-id")});    
-    });
-    
-    t.addTableContentCallbacks("#cdb_content");
-    $(window).resize(function() {
-      calcHeaderWidth();
-    });
-    if (listObject!=null)
-    $.each(listObject, function(k, entry) {
-      if ((entry!=null) && (t.checkFilter(entry))) 
-        if ((entry.open) || (counter==1)) t.renderEntryDetail(entry.id);
-    });
-    
-    if (debug) t.endTimer("renderTablecallback");
+        churchInterface.jsendWrite({func:"saveSetting", sub:"listMaxRows"+t.name, val:$(this).attr("data-id")});
+        return false;
+      });
+      
+      t.addTableContentCallbacks("#cdb_content");
+      $(window).resize(function() {
+        calcHeaderWidth();
+      });
+      if (listObject!=null)
+      $.each(listObject, function(k, entry) {
+        if ((entry!=null) && (t.checkFilter(entry))) 
+          if ((entry.open) || (t.counter==1)) t.renderEntryDetail(entry.id);
+      });
+      
+      if (debug) t.endTimer("renderTablecallback");
+      t.renderListTimer=null;
+    },10);
 
   }
-  t.renderListTimer=null;
-  },10);
 };
 
 StandardTableView.prototype.startTimer = function() {
@@ -507,134 +499,82 @@ function calcHeaderWidth() {
   });*/
 }
 
+StandardTableView.prototype.entryDetailClick = function(id) {
+  var t=this;
+  var a=t.getData();
+  if ($("tr[id=detail"+id+"]").text()!="") {
+    $("tr[id=detail"+id+"]").remove();
+    a[id].open=false;
+  } 
+  else {          
+    a[id].open=true;
+    t.renderEntryDetail(id);
+  }   
+};
+
 StandardTableView.prototype.addTableContentCallbacks = function(cssid) {
-  var this_object=this;
+  var t=this;
+  
+  $(cssid+" input.checked").click(function (_content_input) {
+    var s=$(this).attr("id");
+    if (s=="markAll") {
+      if ((t.counter>=masterData.settings["listMaxRows"+t.name]) && (confirm("Es sind mehr Eintraege vorhanden, als momentan angezeigt. Sollen alle Eintraege markiert werden?"))) {
+        bol=$(this).is(":checked");
+        $.each(listObject, function(k,a) {
+          if ((a!=null) && (t.checkFilter(a))) {
+            a.checked=bol;
+          }  
+        });
+      }  
+
+      if ($(this).is(":checked")) {          
+        $("#cdb_content input.checked").not("#markAll").each(function(a) {
+          $(this).attr("checked","true");
+          t.getData(false)[$(this).attr("id").substr(5,99)]["checked"]=true;
+        });  
+      }  
+      else {   
+        $("#cdb_content input.checked").not("#markAll").each(function(a) {
+          $(this).removeAttr("checked");
+          t.getData(false)[$(this).attr("id").substr(5,99)]["checked"]=false;
+        }); 
+      }
+    }  
+    else t.getData(false)[$(this).attr("id").substr(5,99)]["checked"]=$(this).is(":checked");
+  });
+  
   $(cssid+" a").click(function (_content_a) {
     if ($(this).attr("id")==null)
       return true;
     else if ($(this).attr("id").indexOf("detail")==0) {
       var id = $(this).attr("id").substr(6,99);
-      var a=this_object.getData();
-      if ($("tr[id="+$(this).attr("id")+"]").text()!="") {
-        $("tr[id="+$(this).attr("id")+"]").remove();
-        a[id].open=false;
-      } 
-      else {          
-        a[id].open=true;
-        this_object.renderEntryDetail($(this).attr("id").substr(6,99));
-      }  
+      t.entryDetailClick(id);
     }
     else if ($(this).attr("id")=="mailto") return true;
     else if ($(this).attr("id")=="extern") return true;
     else if ($(this).attr("id").indexOf("sort")==0) {
-      this_object.sortVariable=$(this).attr("id").substr(4,99);
-      this_object.renderList();
+      t.sortVariable=$(this).attr("id").substr(4,99);
+      t.renderList();
     }
     return false;
   });
-  var drin=false;
-  $(cssid+" span[tooltip],a[tooltip]").hover(
-    function() {
-      drin=true;
-      this_object.prepareTooltip($(this), null, $(this).attr("data-tooltiptype"));
-    }, 
-    function() {
-      drin=false;
-      window.setTimeout(function() {
-        if (!drin)
-          this_object.clearTooltip();
-      },100);
-    }
-  );   
-  $(cssid+" span[tooltip],a[tooltip]").click(function(c) {
-    this_object.tooltip_hold=false;
-    this_object.clearTooltip(true);
-  });  
-  this.addFurtherListCallbacks(cssid);
-};
-
-
-StandardTableView.prototype.renderTooltip2Div = function(tooltip, divid) {
-  var txt=this.renderTooltip(tooltip, divid);
-  if (txt instanceof(Array)) {    
-    $("#"+divid).html(txt[0]);
-    $("#"+divid+'_title').html(txt[1]);
-  }
-  else $("#"+divid).html(txt);
-};
-
-StandardTableView.prototype.tooltipCallback = function(divid) {
-};
-
-/**
- * Wird automatisch aufgerufen, sobald ein Element ein attribute "tooltip=$id" hat.
- * @param elem Das HTML-Element, wofür das Tooltip erscheinen soll
- * @param delay Die Verzögerung, nach wann das Element angezeigt werden soll
- */
-StandardTableView.prototype.prepareTooltip = function(elem, delay, htmlclass) {
-  var this_object=this;
-  if (delay==null) delay=200;
-  if (htmlclass==null) htmlclass=this.name;
-  var txt = '<div id="tooltip_inner" class="'+htmlclass+'"></div>';
-  this_object.clearTooltip();
-  this_object.tooltip_elem=elem;
-  this_object.tooltipTimer=window.setTimeout(function() {
-    var pos="bottom";
-//    if (this_object.tooltip_elem.offset().left>$(window).width()-200)
-//      pos="left";
-    this_object.tooltip_elem.popover({ 
-      content:txt, html:true, title:'<span id="tooltip_inner_title"/>', 
-       placement:pos, trigger:"manual", animation:true}).popover("show");
-    this_object.renderTooltip2Div(this_object.tooltip_elem, "tooltip_inner");
-    this_object.tooltipCallback(elem.attr("tooltip"), this_object.tooltip_elem.next(".popover"));
-    $(".popover").hover(
-      function() {
-        if (this_object.tooltip_elem!=null) this_object.tooltip_hold=true;
+  $(".hoveractor").off("hover");
+  $(".hoveractor").hover(
+      function () {
+        $(this).find("span.hoverreactor").fadeIn('fast',function() {});
       }, 
-      function() {
-        if (this_object.tooltip_hold) {
-          this_object.tooltip_hold=false;
-          this_object.clearTooltip();
-        }
-      });
-    this_object.tooltipTimer=null;
-  }, delay);
-};
-
-
-
-
-/**
- * 
- * @param elem - Das Tooltip-Element, kann mit elem.html beschrieben werden.
- * @return Das fertige HTML
- */
-StandardTableView.prototype.renderTooltip = function(elem) {
-  return "noch nicht implementiert!";
-};
-
-// force bedeutet sofort löschen, egal ob hold oder nicht
-StandardTableView.prototype.clearTooltip = function(force) {
-  var t=this;
-  if ((force) || (!t.tooltip_hold)) {
-    t.tooltip_hold=false;
-    if ((t.tooltip_elem!=null) && (t.tooltip_elem.data("popover")!=null)) {
-      t.tooltip_elem.popover("hide");
-      t.tooltip_elem.data("popover",null);
-      t.tooltip_elem=null;
-    }  
-    if (t.tooltipTimer!=null) {
-      window.clearTimeout(t.tooltipTimer);
-      t.tooltipTimer=null;
-    }
-  }
+      function () {
+        $(this).find("span.hoverreactor").fadeOut('fast');
+      }
+    );  
+  this.addFurtherListCallbacks(cssid);
 };
 
 StandardTableView.prototype.mailPerson = function (personId, name, subject) {
   var t=this;
   var rows = new Array();
   rows.push(form_renderInput({cssid:"betreff", label:"Betreff", type:"xlarge", text:(subject!=null?subject:"")}));
-  rows.push('<p>Inhalt<div id="inhalt" class="well">');
+  rows.push('<p>Inhalt<span class="pull-right editor-status"></span><div id="inhalt" class="well">');
   if (masterData.settings.signature!=null)
     rows.push(masterData.settings.signature);
   rows.push('</div>');
@@ -645,7 +585,7 @@ StandardTableView.prototype.mailPerson = function (personId, name, subject) {
        label:"eine BCC-Kopie an mich senden."}));
 
   
-  this.showDialog("E-Mail an "+(name!=null?name:"Person"),rows.join(""), 600,550, {
+  var elem=this.showDialog("E-Mail an "+(name!=null?name:"Person"),rows.join(""), 600,550, {
       "Senden": function() {
         var arr=personId.split(",");
         if ((arr.length<5) || (confirm("Soll wirklich eine E-Mail an "+arr.length+" Personen gesendet werden?"))) {
@@ -663,18 +603,38 @@ StandardTableView.prototype.mailPerson = function (personId, name, subject) {
           obj.inhalt=CKEDITOR.instances.inhalt.getData();
           obj.domain_id=null;
           obj.func="sendEMailToPersonIds";
-          churchInterface.jsendWrite(obj, function(res) {
-            if (res) alert("Die EMail wurde gesendet!");
+          churchInterface.jsendWrite(obj, function(ok, data) {
+            if (ok) {
+              alert("Die EMail wurde gesendet!");
+              drafter.clear();
+            }
+            else alert("Es ist ein Fehler aufgetreten: "+data);
           }, null, false);          
           $(this).dialog("close");
         }
       },
       "Abbrechen": function() {
+        drafter.clear();
         $(this).dialog("close");
       }        
   });
   
-  form_implantWysiwygEditor("inhalt", false);
+  form_implantWysiwygEditor('inhalt', false);
+  //Save draft
+  var drafter=new Drafter("email", {
+    setStatus : function(status) {
+      elem.find('span.editor-status').html('<small><i>'+status+'</small></i>');
+    },
+    getContent : function() {
+      return CKEDITOR.instances.inhalt.getData();
+    },
+    setContent : function(content) {
+      CKEDITOR.instances.inhalt.setData(content);
+    }
+  });
+  
+  CKEDITOR.instances.inhalt.on('change', function() {  elem.find('span.editor-status').html('');});
+
   
   if (subject!=null)
     $("#inhalt").focus();
@@ -689,7 +649,7 @@ StandardTableView.prototype.mailPerson = function (personId, name, subject) {
 StandardTableView.prototype.renderFile = function(file, filename_length) {
   txt="";
   if (file!=null) {
-    txt=txt+'<span class="file" tooltip="'+file.id+'" data-id="'+file.id+'">';
+    txt=txt+'<span class="tooltip-file file" data-id="'+file.id+'">';
     var i = file.bezeichnung.lastIndexOf(".");
     if (i>0) {
       switch (file.bezeichnung.substr(i,99)) {
@@ -730,10 +690,9 @@ StandardTableView.prototype.renderFile = function(file, filename_length) {
   return txt;
 };
 
-StandardTableView.prototype.renderTooltipForFiles = function (tooltip, divid, f, editauth) {
+StandardTableView.prototype.renderTooltipForFiles = function (tooltip, f, editauth) {
   var t=this;
   var rows = new Array();
-//    rows.push("am "+);
   var i = f.bezeichnung.lastIndexOf(".");
   if (i>0)
     
@@ -864,7 +823,7 @@ StandardTableView.prototype.renderFilelist = function(header, filecontainer, spe
       if ((files!=null) && (churchcore_countObjectElements(files)>0)) {
         var txt=header;
         if (txt!="") txt=txt+"<br/>"; 
-        $.each(files, function(k,a) {
+        $.each(churchcore_sortData(files, "bezeichnung"), function(k,a) {
           txt=txt+t.renderFile(a,filename_length);
         });
         $(this).html(txt);
@@ -917,14 +876,27 @@ StandardTableView.prototype.renderStandardFieldsAsSelect = function (elem, field
   });
 };
 
+
+StandardTableView.prototype.checkFieldPermission = function (field, authArray) {
+  var res=true;
+  if (field.auth!=null && field.auth!="") {
+    res=false;
+    $.each(churchcore_getAuthAsArray(field.auth), function(k,auth) {
+      if (auth!=null) 
+        if ((masterData.auth[auth]!=null) || (authArray!=null && churchcore_inArray(auth, authArray))) 
+          res=true;
+    });
+  }
+  return res;
+};
+
 StandardTableView.prototype.getStandardFieldAsSelect = function (field, arr, elem, authArray) {
+  var t=this;
   var value=arr[elem];
   var o = new Object();
   o.label=field.text;
   o.cssid="Input"+field.sql;
-  if ((field.auth!=null) && (masterData.auth[field.auth]==null) && (authArray!=null) && (!churchcore_inArray(field.auth, authArray))) {
-    o.disabled=true;
-  }
+  o.disabled=!t.checkFieldPermission(field, authArray);
   switch (field.type) {
     case "select":
       var data = null;
@@ -1031,7 +1003,7 @@ StandardTableView.prototype.renderField = function(elem, field, a, write_allowed
   if (debug) console.log(field);
   _text="";
   if ((a[elem]!=null) && (a[elem] != "") && 
-      ((field.auth==null) || (masterData.auth[field.auth]) || (churchcore_inArray(field.auth, authArray)))) {
+      (t.checkFieldPermission(field, authArray))) {
     
     var eol=field.eol;
     if (eol.indexOf("%")>-1) {
@@ -1172,10 +1144,6 @@ StandardTableView.prototype.renderSelect = function(selected, elem, masterData, 
 
 StandardTableView.prototype.renderPersonImage = function(id, width) {
   return  form_renderPersonImage(allPersons[id].imageurl, width);
-/*  if (width==null) width=180;
-  var a = allPersons[id];
-  if (a.imageurl==null) a.imageurl="nobody.gif";
-  return "<img style=\"max-width:"+width+"px;\"src=\""+masterData.files_url+"/fotos/"+a.imageurl+"\"/>";*/          
 };
 
 
@@ -1191,6 +1159,7 @@ StandardTableView.prototype.renderPersonSelect = function(title, searchAll, resu
   var this_object=this;
   rows.push("Suche: <input type=\"text\" size=\"10\" id=\"searchAddress\"/ value=\""+_searchString+"\">&nbsp;&nbsp;<br/>");
   rows.push("<div id=\"cdb_personselector\">"+"<i>Bitte Namen eingeben...</i>"+"</div><br/>");
+  if (searchAll) rows.push("<p><small>Gesucht wird nach den f&uuml;r Dich sichtbaren Personen sowie allen Personen aus Deinen Bereichen.</small>");
   
   //elem.html(rows.join(""));
   var elem = form_showCancelDialog("Auswahl einer Person",rows.join(""));

@@ -3,7 +3,7 @@
 <properties>
   <comment>Test messages</comment>
   <entry key="permission.denied.write.dir">Verzeichnis {0} muss beschreibbar sein!</entry>
-  <entry key="site.is.down">Diese Seite wird gerade gewartet. Bitte versuche es später noch einmal.</entry>
+  <entry key="site.is.down">Diese Seite wird gerade gewartet. Bitte versuche es in einigen Minuten noch einmal.</entry>
   <entry key="datasecurity.accept.thanks">Danke für das Akzeptieren der Datenschutzbestimmungen!</entry>
   <entry key="datasecurity.accept">Datenschutzbestimmungen akzeptieren</entry>
   <entry key="no.permission.for">Keine Berechtigung für {0}</entry>
@@ -22,7 +22,7 @@
   <entry key="admin.permissions">Rechteverwaltung</entry>
   <entry key="start.cronjob">Cron-Job ausführen</entry>
   <entry key="logviewer">Log-Viewer</entry>
-  <entry key="about.churchtools">Über ChurchTools 2.0</entry>
+  <entry key="about">Über</entry>
   <entry key="logout">Abmelden</entry>
   <entry key="change.to">Wechseln zu...</entry>
   <entry key="offline.mode.is.active">Achtung, Offline-Modus ist aktiv!</entry>
@@ -68,6 +68,7 @@
   <entry key="email.or.username.unknown">Die EMail-Adresse oder Benutzername ist nicht bekannt!</entry>
   <entry key="forgot.password">Neues Passwort anfordern?</entry>
   <entry key="want.to.receive.new.password">Wirklich neues Passwort anfordern?</entry>
+  <entry key="wrong.password">Das Passwort ist nicht korrekt.</entry>
 
   <!-- MAIL-ARCHIVE -->  
   <entry key="archive.of.sent.messages">Archiv der gesendeten E-Mails/SMS</entry>
@@ -80,7 +81,7 @@
   <entry key="subject">Betreff</entry>
   <entry key="read">Gelesen</entry>
   
-  
+  <entry key="service">Dienst</entry>
   
   
 </properties>

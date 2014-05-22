@@ -14,9 +14,9 @@ function form_renderYesNo(nr, width) {
 }
 
 /**
- * Rendert eine schöne Labelliste mit plus und trahsbox zeichen
- * Es muß ein Div definiert sein, der so heißt wie name. 
- * current=Object, was das Array [name] enthält.
+ * Rendert eine sch√∂ne Labelliste mit plus und trahsbox zeichen
+ * Es mu√ü ein Div definiert sein, der so hei√üt wie name. 
+ * current=Object, was das Array [name] enth√§lt.
  * data=MasterData
  */
 function form_renderLabelList(current, name, data) {
@@ -155,13 +155,17 @@ function form_renderImage(options) {
   }
   var htmlclass=(options.htmlclass!=null?options.htmlclass:"");
   
-  if (options.cssid!="")
-    _text=_text+"<a href=\"#\" "+data+"title=\""+options.label+"\" id=\""+options.cssid+"\"><img style=\""+style+"\" src=\""+src+"\" class=\""+htmlclass+"\"></a>";
+  if (options.cssid!="" || options.link)
+    _text=_text+"<a href=\"#\" "+data+"title=\""+options.label+"\" class=\""+htmlclass+"\" id=\""+options.cssid+"\"><img style=\""+style+"\" src=\""+src+"\" class=\""+htmlclass+"\"></a>";
   else
     _text=_text+"<img style=\""+style+"\" src=\""+src+"\" title=\""+options.label+"\" class=\""+htmlclass+"\">";
     
 
   if ((controlgroup) || (controlgroup_end)) _text=_text+'</div></div>';
+  
+  if (options.hover) {
+    _text='<span class="hoverreactor">'+_text+'</span>';
+  }
   
   return _text;
 }
@@ -172,6 +176,12 @@ function form_renderPersonImage(url, width) {
   return '<img style="max-width:'+width+'px;max-height:'+width+'px;" src="'+settings.files_url+"/fotos/"+url+"\"/>";          
 }
 
+/**
+ * 
+ * @param divid
+ * @param withMyDeps - In addition get people which are in you deps. otherwise only visible people
+ * @param func
+ */
 function form_autocompletePersonSelect (divid, withMyDeps, func) {
   if (withMyDeps==null) withMyDeps=false;
   $(divid).addClass("form-autocomplete");
@@ -219,7 +229,7 @@ function form_autocompletePersonSelect (divid, withMyDeps, func) {
  * 
  * @param elem
  * @param options  
- * deselectable: Mit Klick kann man das Ding wieder deselektieren. Standardm��ig nicht m�glich!
+ * deselectable: Mit Klick kann man das Ding wieder deselektieren. StandardmÔøΩÔøΩig nicht mÔøΩglich!
  */
 function form_renderSelectable(elem, options) {
   var rows = new Array();
@@ -294,6 +304,7 @@ function form_renderCheckbox(options) {
   }
   var rows = new Array();
   var label = (options.label!=null?options.label:"");
+  var htmlclass=(options.htmlclass!=null?" "+options.htmlclass:"");
   var controlgroup = (options.controlgroup==null) || (options.controlgroup);
   var controlgroup_class=(options.controlgroup_class==null?"control-group":options.controlgroup_class);
   var controlgroup_start=(options.controlgroup_start!=null && options.controlgroup_start);
@@ -304,8 +315,15 @@ function form_renderCheckbox(options) {
     rows.push('<div class="'+controlgroup_class+'">');
   if ((controlgroup) || (controlgroup_start)) rows.push('<div class="controls">');
   
+  data="";
+  if (options.data!=null) {
+    $.each(options.data, function(k,a) {
+      data=data+"data-"+a.name+"="+a.value+" ";
+    });
+  }
+  
   if (label!="") rows.push('<label class="checkbox">');
-  rows.push('<input type="checkbox" class="checkbox" '+(options.cssid!=null?'id="'+options.cssid+'"':''));
+  rows.push('<input '+data+' type="checkbox" class="checkbox'+htmlclass+'" '+(options.cssid!=null?'id="'+options.cssid+'"':''));
   if ((options.checked!=null) && (options.checked))
     rows.push(" checked");
   if ((options.disabled!=null) && (options.disabled==true))
@@ -404,6 +422,11 @@ function form_renderInput (options) {
   if (options.htmlclass!=null) rows.push('class="'+options.htmlclass+'" ');
   if (options.maxlength!=null) rows.push('maxlength="'+options.maxlength+'" ');
   rows.push(disabled+' value="'+value+'"/>');  
+  
+  if (options.datepicker!=null) {
+    rows.push('<div id="'+options.datepicker+'" style="position:absolute;background:#e7eef4;z-index:12001;"/>');
+  }
+  
   if ((controlgroup) || (options.controlgroup_end!=null)) rows.push('</div></div>');
   return rows.join("");
 };
@@ -493,17 +516,17 @@ function form_prepareDataEntry(id, bezeichnung, sortkey) {
  * label: Title
  * separator: default " "
  * cssid: cssid
- * fields: weitere Felder f�r Dateninhalte, e.g. {test:"jo", id:123}
+ * fields: weitere Felder fÔøΩr Dateninhalte, e.g. {test:"jo", id:123}
  * htmlclass: html-klasse
  * disabled: default false
  * freeoption: default false (ein leere Option)
  * selected: vorauswahl
- * controlgroup: default true (ob es ein bootstrap div-control-group wird, v.a. f�r formular-horizontal wichtig)
+ * controlgroup: default true (ob es ein bootstrap div-control-group wird, v.a. fÔøΩr formular-horizontal wichtig)
  * controlgroup_start: default false, wenn true, dann wird controlgroup auf false gesetzt
  * controlgroup_end
  * type: small, medium, large (default)
  * func: 
- * html: wird nach dem /select hinzugfef�gt
+ * html: wird nach dem /select hinzugfefÔøΩgt
  * multiple: default false
  * @param options
  * @return txt
@@ -910,6 +933,7 @@ function form_renderDates(options) {
       form_getDatesInToObject(options.data);
       options.data.repeat_option_id=null;
       form_renderDates(options);
+      checkExceptionCollision(options);
     }
   });
   $("#inputStarthour").change(function() {
@@ -993,7 +1017,7 @@ function form_renderDates(options) {
   });
   
   
-  $('#inputRepeat_id').change(function(c) {   
+  $('#inputRepeat_id').change(function(c) { 
     form_getDatesInToObject(options.data);
     form_renderDates(options);
   });
@@ -1003,12 +1027,38 @@ function form_renderDates(options) {
       $("#inputRepeatUntil").val(dateText);
     });
   });
+  $("#inputRepeatUntil").change(function() {
+    form_getDatesInToObject(options.data);
+    if (options.data.repeat_until.getFullYear()>3000) {
+      options.data.repeat_until=new Date();     
+      $("#inputRepeatUntil").val(options.data.repeat_until.toStringDe());
+    }
+  });
   $("#inputRepeatFrequence").change(function() {
     if (($("#inputRepeatFrequence").val()=="0") || ($("#inputRepeatFrequence").val()==""))
       $("#inputRepeatFrequence").val("1");
   });
+  
+  if (options.callback!=null) 
+    options.callback();
 }
 
+function checkExceptionCollision(options) {
+  var data=options.data;
+  var collision=false;
+  if (data.exceptions!=null) {
+    $.each(data.exceptions, function(k,e) {
+      if (churchcore_datesInConflict(data.startdate, data.enddate, e.except_date_start.toDateEn(true), e.except_date_end.toDateEn(true))) {
+        collision=k;
+        return false;
+      }
+    });
+  }
+  if (collision!==false && confirm("Es gibt eine Ausnahme an dem Datum, soll die entfernt werden?")) {
+    delete data.exceptions[collision];
+    form_renderDates(options);
+  }  
+}
 
 
 function form_getDatesInToObject(o) {
@@ -1027,15 +1077,16 @@ function form_implantWysiwygEditor(id, smallmenu, inline) {
   if (!churchcore_isObjectEmpty($("#"+id))) {
     if ((smallmenu==false))
       toolbar= [
-                { name: 'clipboard', groups: [ 'clipboard', 'undo' ], items: [ 'Cut', 'Copy', 'Paste', /*'PasteText', 'PasteFromWord',*/ '-', 'Undo', 'Redo' ] },
-                { name: 'basicstyles', groups: [ 'basicstyles', 'cleanup' ], items: [ 'Bold', 'Italic', 'Underline', 'Strike', /*'Subscript', 'Superscript', */'-', 'RemoveFormat' ] },
+                { name: 'clipboard', groups: [ 'clipboard', 'undo' ], items: [/* 'Cut', 'Copy', 'Paste', 'PasteText', 'PasteFromWord',*/ '-', 'Undo', 'Redo' ] },
+                { name: 'basicstyles', groups: [ 'basicstyles', 'cleanup' ], items: [ 'Bold', 'Italic', 'Underline', /*'Strike', 'Subscript', 'Superscript', */'-', 'RemoveFormat' ] },
                 { name: 'colors', items: [ 'TextColor', 'BGColor' ] },
-                { name: 'insert', items: [ 'Image', 'Smiley'] },
+                { name: 'links', items: [ 'Link', 'Unlink'] },
+                { name: 'insert', items: [ 'Image', 'Smiley', 'Table'] },
                 { name: 'serienfeld', items: [ 'vorname', 'spitzname', 'nachname' ] }
               ];
     else if (smallmenu==true) {
       toolbar= [
-                { name: 'basicstyles', groups: [ 'basicstyles', 'cleanup' ], items: [ 'Bold', 'Italic', 'Underline', 'Strike', /*'Subscript', 'Superscript', */'-', 'RemoveFormat' ] },
+                { name: 'basicstyles', groups: [ 'basicstyles', 'cleanup' ], items: [ 'Bold', 'Italic', 'Underline', /*'Strike', 'Subscript', 'Superscript', */'-', 'RemoveFormat' ] },
                 { name: 'colors', items: [ 'TextColor', 'BGColor' ] },
                 { name: 'insert', items: [ 'Image', 'Smiley', 'SpecialChar'] }
               ];
@@ -1062,7 +1113,7 @@ function CC_MultiSelect(data, func) {
   this.func=func;
   this.data=data;
   this.allSelected=true;
-  // Zus�tztliche Aufruffunktionen, wie "Nur Mitglieder" 
+  // ZusÔøΩtztliche Aufruffunktionen, wie "Nur Mitglieder" 
   this.addFunctions=new Array();
 }
 
@@ -1236,14 +1287,14 @@ CC_MultiSelect.prototype.selectAll = function() {
   var t=this;
   t.selected=new Array();
   $.each(t.data, function(k,a) {
-    if ((a!=null) && (a.bezeichnung!='-'))
+    if ((a!=null) && (a.bezeichnung!='-') && (a.notSelectable==null || !a.notSelectable))
       t.selected.push(a.id);
   }); 
 };
 
 
 /**
- * Setzt die Selected-Werte, Achtung, rendert nicht neu, daf�r mu� z.B. render2Div aufgerufen werden
+ * Setzt die Selected-Werte, Achtung, rendert nicht neu, dafÔøΩr muÔøΩ z.B. render2Div aufgerufen werden
  * @param arrayString  Array mit Idsm die selektiert werden sollen z.b. [1,3,5]
  */
 CC_MultiSelect.prototype.setSelectedAsArrayString = function(arrayString) {
@@ -1266,9 +1317,13 @@ CC_MultiSelect.prototype.addFunction= function(name, func) {
   this.addFunctions.push({bezeichnung:name, func:func, checked:""});
 };
 
+CC_MultiSelect.prototype.isSomethingSelected = function() {
+  return this.selected.length!=0;
+};
+
 
 /**
- * Gibt true zur�ck (d.h. er soll es wegfiltern), wenn mind. einer selektiert ist und wenn es nicht die Id ist.
+ * Gibt true zurÔøΩck (d.h. er soll es wegfiltern), wenn mind. einer selektiert ist und wenn es nicht die Id ist.
  * @param id
  */
 CC_MultiSelect.prototype.filter = function(id) {
@@ -1326,9 +1381,9 @@ CC_Menu.prototype.renderDiv = function(divId, asButton) {
 var form_count=0;
 /**
  * 
- * @param label  �berschrift
- * @param value_container = Value Object mit allen Daten. Wird f�r die Value der Fields genutzt, wenn kein Value angegeben wird.
- * @param cssid  cssid f�r die cssid des Forms und Prefix f�r Formularfelder, wenn dort keine cssid angegeben ist.
+ * @param label  ÔøΩberschrift
+ * @param value_container = Value Object mit allen Daten. Wird fÔøΩr die Value der Fields genutzt, wenn kein Value angegeben wird.
+ * @param cssid  cssid fÔøΩr die cssid des Forms und Prefix fÔøΩr Formularfelder, wenn dort keine cssid angegeben ist.
  */
 function CC_Form(label, value_container, cssid) {
   this.rows=new Array();
@@ -1422,8 +1477,8 @@ CC_Form.prototype.addStandardField = function(field, authArray) {
 };
 
 /**
- * Holt sich anhand der vorher �bergebenen cssids die Daten innerhalb der FORM zusammen
- * @param withEmpty default:true, sollen auch Felder mit gef�llt werden, die leer sind.
+ * Holt sich anhand der vorher ÔøΩbergebenen cssids die Daten innerhalb der FORM zusammen
+ * @param withEmpty default:true, sollen auch Felder mit gefÔøΩllt werden, die leer sind.
  * @return object
  */
 CC_Form.prototype.getAllValsAsObject = function(withEmpty) {
@@ -1499,7 +1554,7 @@ CC_Form.prototype.renderField = function(field) {
     alert("Fieldtype "+field.fieldtype+" nicht gefunden!");
     success=false;
   }
-  // Nun noch der Liste hinzuf�gen, damit es sp�ter ausgelesen werden kann
+  // Nun noch der Liste hinzufÔøΩgen, damit es spÔøΩter ausgelesen werden kann
   if (success) this.fields.push(field);
 };
 
@@ -1634,8 +1689,15 @@ CC_Navi.prototype.addEntry = function(active, id, label) {
   this.entries.push(entry);
 };
 
+CC_Navi.prototype.countElement = function() {
+  return this.entries.length;
+};
+
 CC_Navi.prototype.addSearch = function(searchEntry) {
-  this.search='<input type="text" id="searchEntry" placeholder="Suche" class="input-medium search-query pull-right" value="'+searchEntry+'"/>';
+  if (churchcore_tabletformat())
+    this.search='<input type="text" id="searchEntry" placeholder="Suche" class="input-small search-query pull-right" value="'+searchEntry+'"/>';
+  else 
+    this.search='<input type="text" id="searchEntry" placeholder="Suche" class="input-medium search-query pull-right" value="'+searchEntry+'"/>';
 };
 
 CC_Navi.prototype.render = function(asButton) {
@@ -1688,10 +1750,10 @@ CC_Navi.prototype.activate = function(id) {
  * @return jQuery-Element
  */
 function form_showDialog (title, text, width, height, buttons) {
-  var elem =$("<div id=\"cdb_dialog\">"+text+"</div>").appendTo("#page");
-  
-  if (width>$(window).width()) width=$(window).width();
-  
+  var elem =$('<div id="cdb_dialog">'+text+"</div>").appendTo("#page");
+  if (width>window.innerWidth) width=window.innerWidth-16;
+  if (buttons==null) buttons=new Object();
+
   elem.dialog({
     autoOpen:true, 
     width:width, 
@@ -1701,11 +1763,14 @@ function form_showDialog (title, text, width, height, buttons) {
     buttons:buttons,
     close: function() {
       elem.empty().remove();
+      elem=null;
     }
-  });  
-  shortcut.add("esc", function() {
-    elem.dialog("close");
-  });  
+  });
+  // hack around the problem with editing link and image editor when a dialog already open 
+  elem.removeClass("ui-dialog-content");
+  elem.addClass("ct-dialog-content");
+  $("div.ui-dialog-buttonpane button").addClass("btn");
+
   return elem;
 };
 
@@ -1721,8 +1786,8 @@ function form_showCancelDialog (title, text, width, height) {
   if (width==null) width=350;
   if (height==null) height=400;
   return form_showDialog(title, text, width, height, {
-    "Abbruch": function() {
-    $(this).dialog("close");
+   "Abbruch": function() {
+      $(this).dialog("close");
   }});
 };
 
@@ -1745,6 +1810,18 @@ function form_showOkDialog(title, text, width, height) {
 };
 
 /**
+ * Add the possibility to add buttons to the jQuery UI Dialog
+ */
+jQuery.extend(jQuery.ui.dialog.prototype, { 
+  'addbutton': function(buttonName, func) { 
+      var buttons = this.element.dialog('option', 'buttons'); 
+      buttons[buttonName] = func;
+      this.element.dialog('option', 'buttons', buttons); 
+      $("div.ui-dialog-buttonpane button").addClass("btn");
+  } 
+}); 
+
+/**
  * 
  * @param arr vorhandenees array
  * @param id
@@ -1752,12 +1829,14 @@ function form_showOkDialog(title, text, width, height) {
  * @param sortkey
  * @return erweitertes array
  */
-function form_addEntryToSelectArray (arr, id, bez, sortkey) {
+function form_addEntryToSelectArray (arr, id, bez, sortkey, notSelectable) {
   var new_arr=new Object(); 
   new_arr["id"]=id;
   new_arr["bezeichnung"]=bez;
   if (sortkey!=null)
     new_arr["sortkey"]=sortkey;
+  if (notSelectable!=null) 
+    new_arr["notSelectable"]=notSelectable;
   arr[id]=new_arr;
 };
 /*
@@ -1792,6 +1871,10 @@ function form_implantDatePicker(divid, curDate, func, highlightDay) {
    $("#"+divid).datepicker("destroy");
    $("#"+divid).html("");        
  });  
+ $("#"+divid).mouseleave(function(){
+   $("#"+divid).datepicker("destroy");
+   $("#"+divid).html("");        
+})
 };
 
 function form_renderHelpLink(link, invert) {
@@ -1800,3 +1883,325 @@ function form_renderHelpLink(link, invert) {
   else
     return '<a href="http://intern.churchtools.de?q=help&doc='+link+'" target="_clean"><i class="icon-question-sign icon-white"></i></a>';
 }
+
+/**
+ * options:
+ *   create()
+ *   success()
+ *   cancel()
+ */
+$.widget("ct.editable", {
+  
+  options: {
+    value:null,
+    data:null,
+    type:"input",
+    autosaveSeconds:0,
+    renderEditor: function(txt, data) {return txt; },
+    rerenderEditor: function(txt, data) {return txt; },
+    afterRender: function(data) {},
+    render: function(txt, data) {return txt; },
+    validate: function(txt, data) {return true; }
+  },
+  
+  _autosave:null,
+  
+  _create: function() {
+    var t=this;
+    if (t.options.value==null) t.options.value="";
+    t._renderField();
+    this.element.click(function() {
+      t._startEditor();     
+    });
+    this.element.hover(function() {
+        $(this).addClass("active");
+      },
+      function() {
+        $(this).removeClass("active");
+      }
+    );    
+  },
+  
+  success: function() {
+    this._clearTimer();
+    var newval=this.options.rerenderEditor(this.element.find(this.options.type).val(), this.options.data);
+    if (this.options.validate(newval, this.options.data)) {
+      this.options.value=newval;
+      this.options.success(this.options.value, this.options.data);
+      this.element.removeClass("editmode");  
+      this._renderField();    
+    }
+  },
+  
+  cancel: function() {
+    this._clearTimer();
+    this.element.removeClass("editmode");  
+    this._renderField();    
+  },
+  
+  _clearTimer: function() {
+    if (this._autosave!=null) 
+      window.clearTimeout(this._autosave);
+    this._autosave=null;
+  },
+  
+  _renderField: function() {
+    this.element.html(this.options.render(this.options.value, this.options.data));
+    this.options.afterRender(this.element, this.options.data);
+  },
+  
+  _renderEditor: function() {
+    return this.options.renderEditor(this.options.value, this.options.data);
+  },
+  
+  _startEditor: function() {
+    var t=this;
+    editable=this.element;
+    // Check if this class has not already started the edit mode
+    if (!editable.hasClass("editmode")) { 
+      // Take off editor, when there are there is an old editable
+      $(".editmode").each(function(k,a) {
+        $(a).editable("success");
+      });          
+      editable.addClass("editmode");
+      var elem=null;
+      if (t.options.type=="textarea") {
+        elem=editable.html('<textarea class="editor" maxlength=200 style="margin:0;width:'+(editable.width()-10)+'px" '
+            +'>'+t._renderEditor()+'</textarea>')
+          .find(t.options.type);
+        // Limit max character to given maxlength
+        elem.keyup(function(){
+          var max = parseInt($(this).attr('maxlength'));   
+          if($(this).val().length > max){
+             $(this).val($(this).val().substr(0, max));
+          }        
+          $(this).parent().find('.charleft').html(max - $(this).val().length);
+       });  
+      }
+      // Type=input
+      else {
+        elem=editable.html('<input type="text" class="editor" style="margin:0;width:'+(editable.width()-10)+'px" '
+             +'value="'+t._renderEditor()+'"/>')
+           .find(t.options.type);
+      }
+      elem.focus();
+      // Not by textarea, otherweise Firefox selected after editing the normal text...
+      if (t.options.type!="textarea") elem.select();
+      elem.keyup(function(e) {
+        if (t.options.autosaveSeconds>0) {
+          if (t._autosave!=null)
+            window.clearTimeout(t._autosave);
+          t._autosave=window.setTimeout(function() { t.success(); }, t.options.autosaveSeconds*1000);
+        }
+        
+        // Enter
+        if (e.keyCode == 13) {
+          t.success();
+        }
+        // Escape
+        else if (e.keyCode == 27) {
+          t.cancel();
+        }
+      }); 
+     }
+   }
+  
+});
+
+var currentTooltip=null;
+
+function clearTooltip(force) {
+  if (currentTooltip!=null) {
+    currentTooltip.tooltips("hide", force);
+    currentTooltip=null;
+  }
+}
+
+$.widget("ct.tooltips", {
+  
+  options: {
+    data:null,
+    auto:true,
+    showontouchscreen:true,
+    placement:"bottom",
+    render:function(data) {return ["content","title"];},
+    afterRender:function(element, data) {},
+    getTitle:function(data) {return null;}
+  },
+
+  _showTimer:null,
+  _hideTimer:null,
+  _visible:false,
+  
+  _create:function() {
+    var t=this;
+    t.element.addClass("tooltips-active");
+    if (t.options.auto && (t.options.showontouchscreen || !churchcore_touchscreen())) {
+      this.element.hover(
+        function() {
+          t._prepareTooltip();
+        },
+        function() {
+          t._removeTooltip();
+        }
+      );
+    }
+  },
+  
+  /**
+   *  public function to immediate or slow hide the tooltip
+   */
+  hide: function(immediate) {
+    if (immediate==null || immediate) {
+      if (this._hideTimer!=null) this._clearHideTimer();
+      if (this._showTimer!=null) this._clearShowTimer();
+      this._hideTooltip();
+    }
+    else {
+      this._removeTooltip();
+    }
+  },
+  show: function() {
+    this._prepareTooltip();
+  },
+  
+  /*
+   * Refresh content of tooltip without hide and show it again
+   */
+  refresh: function() {
+    var t=this;
+    var content=t.options.render(this.options.data);
+    if (content instanceof(Array)) {        
+      $("div.popover-content").html(content[0]);
+      $("div.popover-title").html(content[1]);
+    }
+    else 
+      $("div.popover-content").html(content);
+    t.options.afterRender(t.element.next(".popover"), this.options.data);    
+  },
+  
+  _clearHideTimer: function() {
+    window.clearTimeout(this._hideTimer);
+    this._hideTimer=null;    
+  },
+  _clearShowTimer: function() {
+    window.clearTimeout(this._showTimer);
+    this._showTimer=null;    
+  },
+  
+  _hideTooltip: function() {
+    this._visible=false;
+    this.element.removeClass("tooltips-active");
+    this.element.popover("hide");
+    this.element.data("popover", null);
+    if (currentTooltip!=null && currentTooltip==this.element)
+      currentTooltip=null;
+  },
+
+  
+  _showTooltip: function() {
+    var t=this;
+    t._visible=true;
+    var content=t.options.render(this.options.data);
+    if (content instanceof(Array))         
+      t.element.popover({ 
+        content:content[0], html:true, title:content[1], 
+         placement:t.options.placement, trigger:"manual", animation:true}).popover("show");
+    else 
+        t.element.popover({ 
+          content:content, html:true, 
+           placement:t.options.placement, trigger:"manual", animation:true}).popover("show");
+    t.options.afterRender(t.element.next(".popover"), this.options.data);
+  },
+  
+  
+  _prepareTooltip: function() {
+    var t=this;
+    currentTooltip=t.element;
+    if (t._hideTimer!=null) t._clearHideTimer();
+    if (t._showTimer==null && !t._visible) {
+      t._showTimer=window.setTimeout(function() {
+        t._showTooltip();           
+        t.element.next(".popover").hover(
+          function() {
+            if (t._hideTimer!=null) t._clearHideTimer();
+          }, 
+          function() {
+            t._removeTooltip();
+        });        
+        t._showTimer=null;        
+      }, 200);
+    }
+  },
+  
+  _removeTooltip: function() {
+    var t=this;
+
+    // When showTimer is running, cancel immediate!
+    if (t._showTimer!=null) {
+      t._clearShowTimer();
+      t._hideTooltip();
+    }                
+    else {
+      if (t._hideTimer==null) {
+        t._hideTimer=window.setTimeout(function() {
+          t._hideTooltip();
+          t._hideTimer=null;
+        },200);
+      }
+    }
+  }
+    
+});
+
+
+/**
+ * Drafter is an object to organize draft saving in local browser
+ * id = identifier for this draft, like "wiki" or "email"
+ * obj
+ *  setContent function()
+ *  getContent function()
+ *  setStatus function()
+ *  interval (default=10000)
+ */
+function Drafter(id, obj) {
+  this.timer = null;
+  this.obj = obj;
+  this.obj.id=id;
+  if (this.obj.interval==null) this.obj.interval=5000;
+  
+  var content_saves=churchcore_retrieveObject(settings.user.id+"/"+this.obj.id);
+  if (content_saves!=null && content_saves!="") {
+    var content_now=obj.getContent();
+    if (content_now!=content_saves 
+        && confirm("Ich habe noch einen offenen Text gefunden, soll ich diesen wiederherstellen?")) {
+      this.obj.setContent(content_saves);
+      this.obj.setStatus("Daten wiederhergestellt.");
+      churchcore_storeObject(settings.user.id+"/"+this.obj.id, null);
+    }
+  }
+  this.activateTimer();
+}
+
+Drafter.prototype.activateTimer = function() {
+  var t=this;
+  if (this.timer!=null) window.clearTimeout(this.timer);  
+  t.timer=window.setTimeout(function() {
+    var content=t.obj.getContent();
+    if (content!="") t.obj.setStatus("Speichere Daten...");
+    else t.obj.setStatus("");
+    churchcore_storeObject(settings.user.id+"/"+t.obj.id, content);
+    if (content!="") t.obj.setStatus("gespeichert");
+    t.timer=null;
+    t.activateTimer();
+  }, t.obj.interval);
+};
+
+/**
+ * Deactivate timer and delete draft
+ */
+Drafter.prototype.clear = function() {
+  if (this.timer!=null) window.clearTimeout(this.timer); 
+  churchcore_storeObject(settings.user.id+"/"+this.obj.id, null);
+}; 
+

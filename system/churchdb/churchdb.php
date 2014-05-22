@@ -6,7 +6,34 @@ function churchdb__ajax() {
 }
 
 function churchdb_getAuth() {
-  return "view churchresource";
+  $cc_auth = array();
+  $cc_auth=addAuth($cc_auth, 121,'view birthdaylist', 'churchdb', null, 'Geburtagsliste einsehen', 1);
+  $cc_auth=addAuth($cc_auth, 122,'view memberliste', 'churchdb', null, 'Mitgliederliste einsehen', 1);
+  
+  $cc_auth=addAuth($cc_auth, 101,'view', 'churchdb', null, 'ChurchDB sehen', 1);
+  $cc_auth=addAuth($cc_auth, 106,'view statistics', 'churchdb', null, 'Gesamtstatistik einsehen', 1);
+  $cc_auth=addAuth($cc_auth, 107,'view tags', 'churchdb', null, 'Tags einsehen', 1);
+  $cc_auth=addAuth($cc_auth, 108,'view history', 'churchdb', null, 'Historie eines Datensatzes ansehen', 1);
+  $cc_auth=addAuth($cc_auth, 113,'view comments', 'churchdb', 'cdb_comment_viewer', 'Kommentare einsehen', 1);
+  $cc_auth=addAuth($cc_auth, 105,'view address', 'churchdb', null, 'Zus&auml;tzlich Adressdaten der sichtbaren Personen einsehen (Strasse)', 1);
+  $cc_auth=addAuth($cc_auth, 103,'view alldetails', 'churchdb', null, 'Alle Informationen der sichtbaren Person sehen, inkl. Adressdaten, Gruppenzuordnung, etc.', 1);
+  $cc_auth=addAuth($cc_auth, 116,'view archive', 'churchdb', null, 'Personen-Archiv einsehen', 1);
+  $cc_auth=addAuth($cc_auth, 120,'complex filter', 'churchdb', null, '"Weitere Filter" darf verwendet werden', 1);
+  $cc_auth=addAuth($cc_auth, 118,'push/pull archive', 'churchdb', null, 'Personen ins Archiv verschieben und zur&uuml;ckholen', 1);
+  $cc_auth=addAuth($cc_auth, 109,'edit relations', 'churchdb', null, 'Beziehungen der sichtbaren Personen editieren', 1);
+  $cc_auth=addAuth($cc_auth, 110,'edit groups', 'churchdb', null, 'Alle Gruppenzuordnungen der sichtbaren Personen editieren', 1);
+  $cc_auth=addAuth($cc_auth, 119,'create person', 'churchdb', null, 'Darf Personen erstellen', 1);
+  $cc_auth=addAuth($cc_auth, 111,'write access', 'churchdb', null, 'Schreibzugriff auf alle sichtbaren Personen', 1);
+  $cc_auth=addAuth($cc_auth, 102,'view alldata', 'churchdb', 'cdb_bereich', 'Alle Personen des jeweiligen Bereiches sichtbar machen', 1);
+  $cc_auth=addAuth($cc_auth, 117,'send sms', 'churchdb', null, 'SMS-Schnittstelle verwenden', 1);
+  $cc_auth=addAuth($cc_auth, 112,'export data', 'churchdb', null, 'Die Daten aller(!) Personen exportieren', 1);
+  
+  $cc_auth=addAuth($cc_auth, 115,'view group', 'churchdb', 'cdb_gruppe', 'Einzelne Gruppen einsehen - inklusive versteckte Gruppen', 0);
+  $cc_auth=addAuth($cc_auth, 104,'view group statistics', 'churchdb', null, 'Gruppenstatistik aller Gruppen einsehen', 1);  
+  $cc_auth=addAuth($cc_auth, 114,'administer groups', 'churchdb', null, 'Gruppen administrieren, d.h. erstellen, l&ouml;schen, etc.', 1);
+  
+  $cc_auth=addAuth($cc_auth, 199,'edit masterdata', 'churchdb', null, 'Stammdaten editieren', 1);
+  return $cc_auth;
 }
 
 function churchdb_getAdminModel() {
@@ -145,8 +172,8 @@ function externmapview_main() {
   $content='<script type="text/javascript" src="https://maps.google.com/maps/api/js?sensor=true"></script>';
 
   // Übergabe der ID für den Direkteinstieg einer Person
-  if (isset($_GET["id"]) && ($_GET["id"]!=null))
-    $content=$content."<input type=\"hidden\" id=\"filter_id\" value=\"".$_GET["id"]."\"/>";
+  if (isset($_GET["g_id"]) && ($_GET["g_id"]!=null))
+    $content=$content."<input type=\"hidden\" id=\"g_id\" value=\"".$_GET["g_id"]."\"/>";
 
   $content=$content."
     <div id=\"cdb_content\" style=\"width:100%;height:500px\"></div>";
@@ -156,17 +183,33 @@ function externmapview_main() {
 
 
 function getExternalGroupData() {
+  global $user;
   $res=db_query("select id, bezeichnung, treffzeit, zielgruppe, max_teilnehmer, 
             geolat, geolng, treffname, versteckt_yn, valid_yn, distrikt_id, offen_yn, oeffentlich_yn
             from {cdb_gruppe} where oeffentlich_yn=1 and versteckt_yn=0 and valid_yn=1");
   $arr=array();
   foreach ($res as $g) {
+    $db=db_query("select status_no from {cdb_gemeindeperson_gruppe} gpg, {cdb_gemeindeperson} gp
+                 where gp.id=gpg.gemeindeperson_id and gpg.gruppe_id=:gruppe_id 
+                    and gp.person_id=:person_id", array(":gruppe_id"=>$g->id, ":person_id"=>$user->id))->fetch();
+    if ($db!=false)
+      $g->status_no=$db->status_no;
     $arr[$g->id]=$g;    
   }
   return $arr;
 }
 
+function sendConfirmationMail($mail, $vorname="", $g_id) {
+  $g=db_query("select * from {cdb_gruppe} where id=:id", array(":id"=>$g_id))->fetch();
+  if ($g!=false) {
+    $inhalt="<h3>Hallo $vorname!</h3><p>";
+    $inhalt.="Dein Antrag f&uuml;r die Gruppe <i>$g->bezeichnung</i> ist eingegangen. <p>Vielen Dank!";
+    $res = churchcore_mail(variable_get('site_mail'), $mail, "[".variable_get('site_name')."] Teilnahmeantrag zur Gruppe ".$g->bezeichnung, $inhalt, true, true, 2);
+  }
+}
+
 function externmapview__ajax() {
+  global $user;
   $func=$_GET["func"];
   if ($func=='loadMasterData') {
     $res["home_lat"] = variable_get('churchdb_home_lat', '53.568537');
@@ -174,7 +217,22 @@ function externmapview__ajax() {
     $res["districts"]=churchcore_getTableData("cdb_distrikt", "bezeichnung");      
     $res["groups"]=getExternalGroupData();
     $res["modulespath"] = drupal_get_path('module', 'churchdb');
+    $res["user_pid"] =$user->id;
+    $res["vorname"]=$user->vorname;
     $res=jsend()->success($res);    
+  }
+  else if ($func=='addPersonGroupRelation') {
+    include_once(drupal_get_path('module', 'churchdb').'/churchdb_ajax.inc');
+    $res=churchdb_addPersonGroupRelation($user->id, $_GET["g_id"], -2, null, null, null, "Anfrage &uuml;ber externe MapView");
+    sendConfirmationMail($user->email, $user->vorname, $_GET["g_id"]);    
+    $res=jsend()->success($res);
+  }
+  else if ($func=='editPersonGroupRelation') {
+    include_once(drupal_get_path('module', 'churchdb').'/churchdb_ajax.inc');
+    $res=_churchdb_editPersonGroupRelation($user->id,
+       $_GET["g_id"], -2,null, "null", "Anfrage ge&auml;ndert &uuml;ber externe MapView");
+    sendConfirmationMail($user->email, $user->vorname, $_GET["g_id"]);    
+    $res=jsend()->success($res);
   }
   else if ($func=='sendEMail') {
     $db=db_query('select * from {cdb_person} where upper(email) like upper(:email) and upper(vorname) like upper(:vorname) and upper(name) like upper(:name)',
@@ -186,6 +244,7 @@ function externmapview__ajax() {
     if ($db!=false) {
       include_once(drupal_get_path('module', 'churchdb').'/churchdb_ajax.inc');
       churchdb_addPersonGroupRelation($db->id, $_GET["g_id"], -2, null, null, null, "Anfrage &uuml;ber externe MapView: ".$_GET["Kommentar"]);
+      sendConfirmationMail($_GET["E-Mail-Adresse"], $_GET["Vorname"], $_GET["g_id"]);    
       $txt="Person gefunden und Anfrage wurde gesendet!";      
     } 
     else {      
@@ -204,12 +263,14 @@ function externmapview__ajax() {
         $inhalt.="<li>Telefon: ".$_GET["Telefon"];
         $inhalt.="<li>Kommentar: ".$_GET["Kommentar"];
         $inhalt.="</ul>";
-        $res = churchcore_sendEMailToPersonIds($p->id, "[".variable_get('site_name', 'drupal')."] Formular-Anfrage zur Gruppe ".$p->bezeichnung, $inhalt, null, true, true);            
+        $res = churchcore_sendEMailToPersonIds($p->id, "[".variable_get('site_name', 'drupal')."] Formular-Anfrage zur Gruppe ".$p->bezeichnung, $inhalt, variable_get('site_mail'), true, true);            
       }
       if (count($rec)==0)
         $txt="Konnte leider keinen Leiter in der Gruppe finden. Bitte versuchen Sie es auf einem anderen Wege!";
-      else     
+      else {    
         $txt="Es wurde eine E-Mail an ".implode($rec," und ")." gesendet!";
+        sendConfirmationMail($_GET["E-Mail-Adresse"], $_GET["Vorname"], $_GET["g_id"]);
+      }
     }  
     $res=jsend()->success($txt);    
   }    
@@ -393,36 +454,40 @@ function subscribeGroup() {
 }
 
 function churchdb_getBlockBirthdays() {
-  if ((!user_access("view birthdaylist","churchdb")) && (!user_access("view","churchdb")))
-    return null;
   
   $txt="";
-  $t2=getBirthdaylistContent("",-1,-1);
-  if ($t2!="") $txt.='<tr><th colspan="3">Gestern'.$t2;
-  $t2=getBirthdaylistContent("",0,0);
-  if ($t2!="") $txt.='<tr><th colspan="3">Heute'.$t2;
-  $t2=getBirthdaylistContent("",1,1);
-  if ($t2!="") $txt.='<tr><th colspan="3">Morgen'.$t2;
-  if ($txt!="") {
-    $txt="<table class=\"table table-condensed\">".$txt."</table>";
+  if (user_access("view birthdaylist","churchdb")) {
+    $t2=getBirthdaylistContent("",-1,-1);
+    if ($t2!="") $txt.='<tr><th colspan="3">Gestern'.$t2;
+    $t2=getBirthdaylistContent("",0,0);
+    if ($t2!="") $txt.='<tr><th colspan="3">Heute'.$t2;
+    $t2=getBirthdaylistContent("",1,1);
+    if ($t2!="") $txt.='<tr><th colspan="3">Morgen'.$t2;
+    if ($txt!="") {
+      $txt="<table class=\"table table-condensed\">".$txt."</table>";
+    }
+    if ((user_access("view","churchdb")) && (user_access("view birthdaylist","churchdb"))) 
+      $txt.="<p style=\"line-height:100%\" align=\"right\"><a href=\"?q=churchdb/birthdaylist\">Weitere Geburtstage</a>";
   }
-  if ((user_access("view","churchdb")) && (user_access("view birthdaylist","churchdb"))) 
-    $txt.="<p style=\"line-height:100%\" align=\"right\"><a href=\"?q=churchdb/birthdaylist\">Weitere Geburtstage</a>";
   if (user_access("view memberliste","churchdb")) 
-    $txt.="<p style=\"line-height:100%\" align=\"right\"><a href=\"?q=churchdb/memberlist\">Mitgliederliste</a>";
+    $txt.="<p style=\"line-height:100%\" align=\"right\"><a href=\"?q=home/memberlist\">Mitgliederliste</a>";
       
   return $txt;
 }
 
 function churchdb_getTodos() {
   global $user;
-  $mygroups=churchdb_getMyGroups($user->id, true, true);
+  $mygroups=churchdb_getMyGroups($user->id, true, true, false);
+  $mysupergroups=churchdb_getMyGroups($user->id, true, true, true);
   if ($mygroups==null) return "";
+  if ($mysupergroups==null) $mysupergroups=array(-1);
   $db=db_query("select p.id, p.vorname, p.name, g.bezeichnung, gpg.status_no, s.bezeichnung status
            from {cdb_person} p, {cdb_gruppe} g, {cdb_gemeindeperson} gp, {cdb_gemeindeperson_gruppe} gpg, {cdb_gruppenteilnehmerstatus} s 
            where s.intern_code=gpg.status_no and
-           gpg.gemeindeperson_id=gp.id and gp.person_id=p.id and gpg.status_no<0 and gpg.gruppe_id=g.id and
-           gpg.gruppe_id in (".implode(',',$mygroups).") order by status");
+           gpg.gemeindeperson_id=gp.id and gp.person_id=p.id and gpg.gruppe_id=g.id and
+           ((gpg.gruppe_id in (".implode(',',$mygroups).") and gpg.status_no<-1) 
+           or (gpg.gruppe_id in (".implode(',',$mysupergroups).") and gpg.status_no=-1))
+           order by status");
 
   $arr=array();
   if ($db==false) return "";
@@ -453,6 +518,10 @@ function churchdb_getTodos() {
   if ($txt!="") 
     $txt='<ul>'.$txt.'</ul>';
   return $txt;
+}
+
+function churchdb_getForum() {
+  return '<div id="cc_forum"></div>';
 }
 
 function churchdb_getBlockLookPerson() {
@@ -490,7 +559,13 @@ function churchdb_blocks() {
       "sortkey"=>1,
       "html"=>churchdb_getTodos()
     ),  
-  ));
+    5=>array(
+      "label"=>"ChurchMailer",
+      "col"=>1,
+      "sortkey"=>2,
+      "html"=>churchdb_getForum()
+    ),  
+    ));
 } 
 
 function churchdb__birthdaylist() {
@@ -498,235 +573,10 @@ function churchdb__birthdaylist() {
 	          getBirthdaylistContent("Heute",0, 0, true).
 	          getBirthdaylistContent("Nächsten 30 Tage", 1, 30, true)."</ul>";
   if (user_access("view memberliste","churchdb")) 
-    $txt.="<p style=\"line-height:100%\" align=\"right\"><a href=\"?q=churchdb/memberlist\">Mitgliederliste</a>";
+    $txt.="<p style=\"line-height:100%\" align=\"right\"><a href=\"?q=home/memberlist\">Mitgliederliste</a>";
 	          
   return $txt;  
 }  
-
-
-function churchdb_getMemberList() {
-  global $base_url, $files_dir;
-  $status_id=variable_get('churchdb_memberlist_status', '1');
-  if ($status_id=="") $status_id="-1";
-  $station_id=variable_get('churchdb_memberlist_station', '1,2,3');
-  if ($station_id=="") $station_id="-1";
-
-  $sql='select person_id, name, vorname, strasse, ort, plz, land, DATE_FORMAT(geburtsdatum, \'%d.%m.%Y\') geburtsdatum, DATE_FORMAT(geburtsdatum, \'%d.%m.\') geburtsdatum_compact, 
-         (case when geschlecht_no=1 then \'Herr\' when geschlecht_no=2 then \'Frau\' else \'\' end) "anrede",
-         telefonprivat, telefongeschaeftlich, telefonhandy, fax, email, imageurl
-         from {cdb_person} p, {cdb_gemeindeperson} gp where gp.person_id=p.id and gp.station_id in ('.$station_id.') 
-          and gp.status_id in ('.$status_id.') and archiv_yn=0 order by name, vorname';
-  $db=db_query($sql);
-  $res=array();
-  foreach ($db as $r) {
-    $res[]=$r;
-  }  
-  return $res;
-}
-
-function churchdb__memberlist_saveSettings($form) {
-  if (isset($_POST["btn_1"])) {
-    header("Location: ?q=churchdb/memberlist");
-    return null;
-  }
-  else {
-    foreach ($form->fields as $key=>$value) {
-      db_query("insert into {cc_config} (name, value) values (:name,:value) on duplicate key update value=:value",
-          array(":name"=>$key, ":value"=>$value));
-    }
-    loadDBConfig();
-  }
-}
-
-function _churchdb__memberlist_getSettingFields() {
-  global $config;
-  include_once("system/includes/forms.php");
-  
-  $model = new CC_Model("AdminForm", "churchdb__memberlist_saveSettings");
-  $model->setHeader("Einstellungen f&uuml;r die Mitgliederliste", "Der Administrator kann hier Einstellung vornehmen.");    
-  $model->addField("churchdb_memberlist_status","", "INPUT_REQUIRED","Kommaseparierte Liste mit Status-Ids f&uuml;r Mitgliederliste");
-    $model->fields["churchdb_memberlist_status"]->setValue($config["churchdb_memberlist_status"]);
-  $model->addField("churchdb_memberlist_station","", "INPUT_REQUIRED","Kommaseparierte Liste mit Station-Ids f&uuml;r Mitgliederliste");
-    $model->fields["churchdb_memberlist_station"]->setValue($config["churchdb_memberlist_station"]);
-    
-  $model->addField("memberlist_telefonprivat","", "CHECKBOX","Anzeige der privaten Telefonnummer");
-    $model->fields["memberlist_telefonprivat"]->setValue((isset($config["memberlist_telefonprivat"])?$config["memberlist_telefonprivat"]:true));
-  $model->addField("memberlist_telefongeschaeftlich","", "CHECKBOX","Anzeige der gesch&auml;ftlichen Telefonnummer");
-    $model->fields["memberlist_telefongeschaeftlich"]->setValue((isset($config["memberlist_telefongeschaeftlich"])?$config["memberlist_telefongeschaeftlich"]:true));
-  $model->addField("memberlist_telefonhandy","", "CHECKBOX","Anzeige der Mobil-Telefonnumer");
-    $model->fields["memberlist_telefonhandy"]->setValue((isset($config["memberlist_telefonhandy"])?$config["memberlist_telefonhandy"]:true));
-  $model->addField("memberlist_fax","", "CHECKBOX","Anzeige der FAX-Nummer");
-    $model->fields["memberlist_fax"]->setValue((isset($config["memberlist_fax"])?$config["memberlist_fax"]:true));
-  $model->addField("memberlist_email","", "CHECKBOX","Anzeige der EMail-Adresse");
-    $model->fields["memberlist_email"]->setValue((isset($config["memberlist_email"])?$config["memberlist_email"]:true));
-  $model->addField("memberlist_birthday_full","", "CHECKBOX","Anzeige des gesamten Geburtsdatums (inkl. Geburtsjahr)");
-    $model->fields["memberlist_birthday_full"]->setValue((isset($config["memberlist_birthday_full"])?$config["memberlist_birthday_full"]:false));
-    
-  return $model;
-}
-
-function churchdb__memberlist_settings() {
-  $model=_churchdb__memberlist_getSettingFields();
-  $model->addButton("Speichern","ok");
-  $model->addButton("Zur&uuml;ck","arrow-left");
-  
-  return $model->render();
-}
-
-function churchdb__memberlist() {
-  global $base_url, $files_dir, $config;
-  
-  if (!user_access("view memberliste","churchdb")) { 
-     addErrorMessage("Keine Berechtigung f&uuml;r die Mitgliederliste!");
-     return " ";
-  }  
-  
-  $fields=_churchdb__memberlist_getSettingFields()->fields;
-  
-  $txt='<small><i><a class="cdb_hidden" href="?q=churchdb/memberlist_printview" target="_clean">Druckansicht</a></i></small>';
-  if (user_access("administer settings","churchcore"))
-    $txt.='&nbsp; <small><i><a class="cdb_hidden" href="?q=churchdb/memberlist_settings">Admin-Einstellung</a></i></small>';
-  
-  $txt.="<table class=\"table table-condensed\"><tr><th><th>Anrede<th>Name<th>Adresse<th>Geb.<th>Kontaktdaten</tr><tr>";
-  $link = $base_url;
-  
-  $res=churchdb_getMemberList();
-  foreach ($res as $arr) {
-    
-    if ($arr->imageurl==null) $arr->imageurl="nobody.gif";        
-    $txt.="<tr><td><img width=\"65px\"src=\"$base_url$files_dir/fotos/".$arr->imageurl."\"/>";         
-    $txt.='<td><div class="dontbreak">'.$arr->anrede.'<br/>&nbsp;</div><td><div class="dontbreak">';
-    
-    if ((user_access("view","churchdb")) && (user_access("view alldata","churchdb")))
-      $txt.="<a href=\"$link?q=churchdb#PersonView/searchEntry:#".$arr->person_id."\">".$arr->name.", ".$arr->vorname."</a>";
-    else
-      $txt.=$arr->name.", ".$arr->vorname;      
-    
-    $txt.='<br/>&nbsp;</div><td><div class="dontbreak">'.$arr->strasse."<br/>".$arr->plz." ".$arr->ort."</div>";  
-       
-    $txt.="<td><div class=\"dontbreak\">".($fields["memberlist_birthday_full"]->getValue()?$arr->geburtsdatum:$arr->geburtsdatum_compact)."<br/>&nbsp;</div><td><div class=\"dontbreak\">";
-    if (($fields["memberlist_telefonprivat"]->getValue()) && ($arr->telefonprivat!="")) 
-      $txt.=$arr->telefonprivat."<br/>";
-    if (($fields["memberlist_telefonhandy"]->getValue()) && ($arr->telefonhandy!="")) 
-      $txt.=$arr->telefonhandy."<br/>";
-    if (($arr->telefonprivat=="") && ($arr->telefonhandy=="")) {  
-      if (($fields["memberlist_telefongeschaeftlich"]->getValue()) && ($arr->telefongeschaeftlich!="")) 
-        $txt.=$arr->telefongeschaeftlich."<br/>";
-      if (($fields["memberlist_fax"]->getValue()) && ($arr->fax!="")) 
-        $txt.=$arr->fax." (Fax)<br/>";
-    }
-    if (($fields["memberlist_email"]->getValue()) && ($arr->email!="")) 
-      $txt.='<a href="mailto:'.$arr->email.'">'.$arr->email.'</a><br/>';
-    $txt.="</div>";
-  }
-  
-  $txt.="</table>";
-  return $txt;
-}  
-
-
-function churchdb__memberlist_printview() {
-  global $base_url, $files_dir, $config;
-  //  $content='<html><head><meta http-equiv="Content-Type" content="application/pdf; charset=utf-8" />';
-//   drupal_add_css('system/bootstrap/css/bootstrap.min.css');
-//  drupal_add_css(drupal_get_path('module', 'churchdb').'/cdb_printview.css');
-//  $content=$content.drupal_get_header();
-  if (!user_access("view memberliste","churchdb")) { 
-     addErrorMessage("Keine Berechtigung f&uuml;r die Mitgliederliste!");
-     return " ";
-  }  
-
-  require_once('system/assets/fpdf17/fpdf.php');
-  $compact=true;
-  if (isset($_GET["compact"])) $compact=$_GET["compact"];
-  
-  class PDF extends FPDF {
-    //Kopfzeile
-    function Header() {
-      //Logo
-//      $this->Image('system/assets/img/ct-icon_256.png',10,8,33);
-      //Arial fett 15
-      $this->SetFont('Arial','B',9);
-      //nach rechts gehen
-      $this->Cell(12,7,'',0);
-      //Titel
-      $this->Cell(13,8,'Anrede',0,0,'L');
-      $this->Cell(48,8,'Name',0,0,'L');
-      $this->Cell(45,8,'Adresse',0,0,'L');
-      $this->Cell(20,8,'Geb.',0,0,'L');
-      $this->Cell(30,8,'Kontaktdaten',0,0,'L');
-      $fields=_churchdb__memberlist_getSettingFields()->fields;
-      if ($fields["memberlist_telefonhandy"]->getValue())
-        $this->Cell(30,8,'Handy',0,0,'L');
-      //Zeilenumbruch
-      $this->SetLineWidth(0.1);
-      $this->SetDrawColor(200, 200, 200);
-      $this->Line(8,$this->GetY(),204,$this->GetY());
-      $this->Ln(9);
-      $this->Line(8,$this->GetY()-1,204,$this->GetY()-1);
-    }
-  
-    //Fusszeile
-    function Footer() {
-      //Position 1,5 cm von unten
-      $this->SetY(-10);
-      //Arial kursiv 8
-      $this->SetFont('Arial','I',8);
-      //Seitenzahl
-      $this->Cell(0,5,'Seite '.$this->PageNo().'/{nb}',0,0,'C');
-    }
-  }
-  
-  //Instanciation of inherited class
-  $pdf=new PDF('P','mm','A4');
-  $pdf->AliasNbPages();
-  $pdf->AddPage();
-  $pdf->SetFont('Arial','',9);
-  $res=churchdb_getMemberList();
-  $pdf->SetLineWidth(0.4);
-  $pdf->SetDrawColor(200, 200, 200);
-  $fields=_churchdb__memberlist_getSettingFields()->fields;
-  foreach ($res as $p) {
-      $pdf->Line(8,$pdf->GetY()-1,204,$pdf->GetY()-1);
-      $pdf->Cell(10,10,"",0);
-      if (($p->imageurl==null) || (!file_exists("$files_dir/fotos/$p->imageurl"))) 
-        $p->imageurl="nobody.gif";        
-      $pdf->Image("$files_dir/fotos/$p->imageurl",$pdf->GetX()-10,$pdf->GetY()+1,9);
-      $pdf->Cell(2);
-      $pdf->Cell(13,9,$p->anrede,0,0,'L');
-      $pdf->Cell(48,9,utf8_decode("$p->name, $p->vorname"),0,0,'L');
-      $pdf->Cell(45,9,utf8_decode("$p->strasse"),0,0,'L');
-      if (($fields["memberlist_birthday_full"]->getValue()))  
-        $pdf->Cell(20,9,$p->geburtsdatum,0,0,'L');
-      else
-        $pdf->Cell(20,9,$p->geburtsdatum_compact,0,0,'L');
-      
-      if (($fields["memberlist_telefonprivat"]->getValue()) && ($p->telefonprivat!="")) 
-         $pdf->Cell(30,9,$p->telefonprivat,0,0,'L');
-      else if (($fields["memberlist_telefongeschaeftlich"]->getValue()) && ($p->telefongeschaeftlich!="")) 
-         $pdf->Cell(30,9,$p->telefongeschaeftlich,0,0,'L');
-      else if (($fields["memberlist_telefongeschaeftlich"]->getValue()) && ($p->fax!="")) 
-         $pdf->Cell(30,9,$p->fax." (Fax)",0,0,'L');
-      else $pdf->Cell(30,9,"",0,0,'L');
-      if (($fields["memberlist_telefonhandy"]->getValue()) && ($p->telefonhandy!="")) 
-         $pdf->Cell(30,9,$p->telefonhandy,0,0,'L');
-      
-      //Zeilenumbruch
-      $pdf->Ln(5);
-      $pdf->Cell(73);
-      $pdf->Cell(48,10,"$p->plz ".utf8_decode($p->ort),0,0,'L');
-      $pdf->Cell(17);
-      if (($fields["memberlist_email"]->getValue()) && ($p->email!="")) {
-        $pdf->SetFont('Arial','',8);
-        $pdf->Cell(30,9,$p->email);
-        $pdf->SetFont('Arial','',9);
-      }
-      $pdf->Ln(12);
-      
-  }
-  $pdf->Output('mitgliederliste.pdf','I');  
-}
-
 
 
 
@@ -736,18 +586,23 @@ function churchdb__vcard() {
   drupal_add_http_header('Content-Disposition','attachment; filename="vcard'.$id.'.vcf"',true);
   include_once("churchdb_db.inc");
 
-  $person = db_query("
+  $sql="
     SELECT  concat(
     'BEGIN:VCARD\n','VERSION:3.0\n',
 	'N:',name,';',vorname,'\n',
+    'NICKNAME:',spitzname,'\n',      
 	'EMAIL;TYPE=INTERNET:',email,'\n',
-	'TEL;TYPE=voice,privat:',telefonprivat,'\n',
-	'TEL;TYPE=voice,work:',telefongeschaeftlich,'\n',
-	'TEL;TYPE=voice,cell,pref:',telefonhandy,'\n',
-	'ADR;TYPE=intl,privat,postal:;',zusatz,';',strasse,';',ort,';;',plz,';',land,'\n',
-	if(geburtsdatum is null,'',concat('BDAY:',geburtsdatum,'\n')),
-	'END:VCARD'
-	) vcard FROM {cdb_person} p, {cdb_gemeindeperson} gp WHERE gp.person_id=p.id and p.id = ".$id)->fetch();
+	'TEL;type=HOME;type=VOICE:',telefonprivat,'\n',
+	'TEL;type=WORK;type=VOICE:',telefongeschaeftlich,'\n',
+	'TEL;type=CELL;type=VOICE;type=pref:',telefonhandy,'\n',";
+  
+  if (user_access("view alldetails", "churchdb"))
+    $sql.="'ADR;TYPE=HOME;type=pref:;',zusatz,';',strasse,';',ort,';;',plz,';',land,'\n',
+    if(geburtsdatum is null,'',concat('BDAY:',geburtsdatum,'\n')),";
+  $sql.="'END:VCARD'
+      ) vcard FROM {cdb_person} p, {cdb_gemeindeperson} gp WHERE gp.person_id=p.id and p.id = :id";
+    
+  $person = db_query($sql, array(":id"=>$id))->fetch();
   echo $person->vcard;
 }
   
@@ -759,19 +614,24 @@ function churchdb__export() {
   if (isset($_GET["ids"]))
     $ids="and p.id in (".$_GET["ids"].")";
   else $ids="";  
+  
+  $ps=churchdb_getAllowedPersonData();
+  $allowed_ids=array();
+  foreach ($ps as $p) {
+    $allowed_ids[]=$p->p_id;
+  }
 
-  $allowedDeps=implode(",",churchdb_getAllowedDeps());
   if (user_access("view alldetails","churchdb"))
     $persons_sql = 'SELECT station.bezeichnung station, (case when geschlecht_no=1 then \'Herr\' when geschlecht_no=2 then \'Frau\' else \'\' end) "anrede", vorname, name, strasse adresse, plz,
               ort, land, n.bezeichnung nationalitaet, telefonprivat "tel. priv.", email "e-mail", telefongeschaeftlich "tel. büro", telefonhandy "handy",
-  			null bemerkung, eintrittsdatum "mitglied seit", status.kuerzel status,
-  			taufdatum getauft, taufort, getauftdurch "getauft durch", ueberwiesenvon "Überwiesen von", 
+  			null bemerkung, DATE_FORMAT(eintrittsdatum , \'%d.%m.%Y\') "mitglied seit", status.kuerzel status,
+  			DATE_FORMAT(taufdatum, \'%d.%m.%Y\') getauft, taufort, getauftdurch "getauft durch", ueberwiesenvon "Überwiesen von", 
   			day(geburtsdatum) "geb.tag", month(geburtsdatum) "geb.m.", year(geburtsdatum) "geb.jahr", f.bezeichnung "f.stand", 
-  			geburtsname "geb.name", hochzeitsdatum "hochzeitsdatum", geburtsort "geb.ort", beruf, titel "titel",
+  			geburtsname "geb.name", DATE_FORMAT(hochzeitsdatum , \'%d.%m.%Y\') "hochzeitsdatum", geburtsort "geb.ort", beruf, titel "titel",
   			(case when geschlecht_no=1 then \'Lieber\' when geschlecht_no=2 then \'Liebe\' else \'\' end) "anrede2",
   			bereich_id, b.bezeichnung "bereich", 
   			day(eintrittsdatum) "mitgliedseit.tag", month(eintrittsdatum) "mitgliedseit.m", year(eintrittsdatum) "mitgliedseit.jahr",
-              (year(curdate())-year(geburtsdatum) - (RIGHT(CURDATE(),5)<RIGHT(geburtsdatum,5))) as "alter",p.id id, null as "e-mail_beziehung", optigem_nr, spitzname
+              (year(curdate())-year(geburtsdatum) - (RIGHT(CURDATE(),5)<RIGHT(geburtsdatum,5))) as "alter",p.id id, null as "e-mail_beziehung", null as "vorname2", optigem_nr, spitzname, zusatz
              FROM {cdb_person} p, {cdb_gemeindeperson} gp, {cdb_bereich_person} bp, {cdb_bereich} b,
   		        {cdb_station} station, {cdb_status} status, {cdb_familienstand} f,
   		        {cdb_nationalitaet} n
@@ -781,8 +641,8 @@ function churchdb__export() {
   						and gp.status_id=status.id
   						and gp.station_id=station.id
   						and gp.familienstand_no=f.id
-  						and gp.nationalitaet_id=n.id
-  						and bp.bereich_id in ('.$allowedDeps.') ';
+                        and gp.nationalitaet_id=n.id
+                        and p.id in ('.implode(",", $allowed_ids).')';
   else
     $persons_sql = 'SELECT station.bezeichnung station, (case when geschlecht_no=1 then \'Herr\' when geschlecht_no=2 then \'Frau\' else \'\' end) "anrede", vorname, name, spitzname, plz,
               ort, telefonprivat "tel. priv.", email "e-mail", telefongeschaeftlich "tel. büro", telefonhandy "handy",
@@ -795,26 +655,36 @@ function churchdb__export() {
                   and p.id=bp.person_id 
                   and bp.bereich_id=b.id 
               and gp.station_id=station.id
-              and bp.bereich_id in ('.$allowedDeps.') ';
-    
-  
-	$persons = db_query($persons_sql.$ids.' ORDER BY name, vorname, id');			  
+              and p.id in ('.implode(",", $allowed_ids).')';
+      
+	$persons = db_query($persons_sql.$ids.' ORDER BY name, vorname, id, b.sortkey ');			  
   // Zuerst werden die Daten in ein Array gepackt und dabei nach Bereich verdichtet, 
   // so dass eine Person in mehreren Bereichen auch nur 1x aufgefuehrt wird.
   // Die Bereiche werden dann per "," getrennt
   $export= array();
   
   foreach ($persons as $arr) {
+    if (isset($arr->{'geb.jahr'})) { 
+      if ($arr->{'geb.jahr'}>=7000) {
+        $arr->{'geb.tag'}="";
+        $arr->{'geb.m.'}="";
+        $arr->{'geb.jahr'}=$arr->{'geb.jahr'}-7000;
+      }
+      else if ($arr->{'geb.jahr'}==1004) {
+        $arr->{'geb.jahr'}="";
+      }     
+    }
+    
     // Wenn schon benutzt, dann nehme das
     if (isset($export[$arr->id]))
       $person=$export[$arr->id];
     else $person=array();  
     foreach ($arr as $a=>$key) {
       // Dies dient der Verdichtung nach Bereich
-      if (($a=="bereich") && ($person["bereich"]!=null)) {
+      if (($a=="bereich") && (isset($person["bereich"]))) {
         $person[$a]=$person[$a]."::".$key;        
       } 
-      else if (($a=="bereich_id") && ($person["bereich_id"]!=null)) {
+      else if (($a=="bereich_id") && (isset($person["bereich_id"]))) {
         $person[$a]=$person[$a]."::".$key;        
       } 
       else  
@@ -861,6 +731,7 @@ function churchdb__export() {
         // Fuegen dem Mann die andere zuerst zu
         $export[$p1]["anrede"]=$rel_types[$rel->typ_id]->export_title;
         $export[$p1]["anrede2"]=$export[$p2]["anrede2"]." ".$export[$p2]["vorname"].", ".$export[$p1]["anrede2"];
+        $export[$p1]["vorname2"]=$export[$p2]["vorname"];
         if (isset($export[$p2]["e-mail"]))
           $export[$p1]["e-mail_beziehung"]=$export[$p2]["e-mail"];
         // Und nehmen den anderen aus dem Export raus
@@ -868,6 +739,26 @@ function churchdb__export() {
       }   
     }
   }
+  
+  // Now check if there is group_id which I can add group relation Infos to the export
+  if (isset($_GET["groupid"])) {
+    foreach ($export as $k=>$key) {
+      $r=db_query("select g.bezeichnung, s.bezeichnung status, DATE_FORMAT(gpg.letzteaenderung, '%d.%m.%Y') letzteaenderung, gpg.comment 
+               from {cdb_gruppe} g, {cdb_gemeindeperson} gp, 
+                     {cdb_gemeindeperson_gruppe} gpg, {cdb_gruppenteilnehmerstatus} s  
+                  where gp.id=gpg.gemeindeperson_id and g.id=:gruppe_id 
+                         and s.intern_code=status_no
+                       and gpg.gruppe_id=g.id and gp.person_id=:person_id", 
+                array(":gruppe_id"=>$_GET["groupid"], ":person_id"=>$key["id"]))->fetch();
+      if ($r!=false) {
+        $export[$k]["gruppe"]=$r->bezeichnung;
+        $export[$k]["gruppe_seit"]=$r->letzteaenderung;
+        $export[$k]["gruppe_kommentar"]=$r->comment;
+        $export[$k]["gruppe_status"]=$r->status;
+      }
+    }    
+  }
+  
   
   // Nun werden die Daten ueber Echo ausgegeben
   $header=true;
@@ -1049,7 +940,29 @@ function churchdb_cron() {
   }
 
   // L�sche auch die alten Mails raus
-  db_query("delete from {cc_mail_queue} where send_date is not null and datediff(send_date, now())<-60");  
+  db_query("delete from {cc_mail_queue} where send_date is not null and datediff(send_date, now())<-60");
+
+  // Do Statistics
+  $db=db_query("select max(date) max, curdate() now from {crp_person}")->fetch();
+  if ($db->max!=$db->now) {
+    db_query("insert into {crp_person} (
+                   SELECT curdate(), status_id, station_id, 
+                       sum(case when datediff(erstkontakt,'".$db->max."')>=0 then 1 else 0 end), 
+                       count(*) 
+                   FROM {cdb_person} p, {cdb_gemeindeperson} gp
+                    where p.id=gp.person_id group by status_id, station_id
+              )");
+    db_query("insert into crp_group (
+                    SELECT curdate(), gruppe_id, status_id, station_id, s.id gruppenteilnehmerstatus_id, 
+                        sum(case when datediff(gpg.letzteaenderung,'".$db->max."')>=0 then 1 else 0 end), 
+                        count(*) 
+                     from {cdb_gemeindeperson_gruppe} gpg, {cdb_gruppenteilnehmerstatus} s, {cdb_gemeindeperson} gp, {cdb_gruppe} g
+                     where  gpg.gemeindeperson_id=gp.id  and gpg.status_no=s.intern_code
+                            and gpg.gruppe_id=g.id and (g.abschlussdatum is null or datediff(g.abschlussdatum, curdate())>-366)
+                     group by gruppe_id, status_id, station_id, gruppenteilnehmerstatus_id, s.id
+               )");
+    ct_log('ChurchDB Tagesstatistik wurde erstellt.', 2);
+  }
 }
 
 function listBatchSubscribe($api, $list_id, $batch, $optin=true) {

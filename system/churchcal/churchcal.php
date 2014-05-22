@@ -4,8 +4,10 @@ function churchcal_main() {
   global $config, $base_url, $config, $embedded;
   include_once("system/includes/forms.php");
   
-  
   drupal_add_css('system/assets/fullcalendar/fullcalendar.css');
+  if (isset($_GET["printview"]))
+    drupal_add_css('system/assets/fullcalendar/fullcalendar.print.css');
+  
   drupal_add_css('system/assets/simplecolorpicker/jquery.simplecolorpicker.css');
   drupal_add_js('system/assets/simplecolorpicker/jquery.simplecolorpicker.js');
   
@@ -25,6 +27,13 @@ function churchcal_main() {
     $txt.='<input type="hidden" id="filtercategory_id" name="category_id" value="'.$_GET["category_id"].'"/>';
     
   if ($embedded) {
+    if (variable_get("churchcal_css", "-")!="-") {
+      $txt.='<style>'.variable_get("churchcal_css").'</style>';
+    }
+    if (isset($_GET["cssurl"])) {
+      drupal_add_css($_GET["cssurl"]);
+    }    
+    
     if ((isset($_GET["category_select"])) && ($_GET["category_select"]!="") && ($_GET["category_select"]!="null"))
       $txt.='<input type="hidden" id="filtercategory_select" name="category_select" value="'.$_GET["category_select"].'"/>';
     if ((isset($_GET["minical"]) && ($_GET["minical"]=="true")))
@@ -36,16 +45,24 @@ function churchcal_main() {
     $txt.='<input type="hidden" id="isembedded"/>';
     if (isset($_GET["title"]))
       $txt.='<input type="hidden" id="embeddedtitle" value="'.$_GET["title"].'"/>';
+    if (isset($_GET["printview"]))
+      $txt.='<input type="hidden" id="printview" value="true"/>';
     if (isset($_GET["entries"]))
       $txt.='<input type="hidden" id="entries" value="'.$_GET["entries"].'"/>';
+    if (isset($_GET["startdate"]))
+      $txt.='<input type="hidden" id="init_startdate" value="'.$_GET["startdate"].'"/>';
+    if (isset($_GET["enddate"]))
+      $txt.='<input type="hidden" id="init_enddate" value="'.$_GET["enddate"].'"/>';
   }
   else   
     $txt.='<div class="row-fluid">
   					<div class="span3"><div id="cdb_filter"></div></div>
-  					<div class="span9"><div id="header" class="pull-right"></div><div id="calendar"></div></div>
-  			  </div><p align=right><small><a target="_blank" href="'.$base_url.'?q=churchcal&embedded=true&category_id=null">'.$config["churchcal_name"].' einbetten</a>
+  					<div class="span9"><div id="header" class="pull-right"></div><div id="calendar"></div></div>'.
+  			  '<p align=right><small>'.
+  			  '<a target="_blank" href="'.$base_url.'?q=churchcal&embedded=true&category_id=null">'.$config["churchcal_name"].' einbetten</a>
   			  <a target="_clean" href="http://intern.churchtools.de/?q=churchwiki#WikiView/filterWikicategory_id:0/doc:ChurchCal%C2%A0einbetten/"><i class="icon-question-sign"></i></a>
-  			    &nbsp; <a id="abo" href="'.$base_url.'?q=churchcal/ical">'.$config["churchcal_name"].' abonnieren per iCal</a></small>';
+  			    &nbsp; <a id="abo" href="'.$base_url.'?q=churchcal/ical">'.$config["churchcal_name"].' abonnieren per iCal</a>'.
+  			    '</small>';
     
   if (isset($_GET["date"])) $txt.='<input type="hidden" name="viewdate" id="viewdate" value="'.$_GET["date"].'"/>';  
   if (isset($_GET["viewname"])) $txt.='<input type="hidden" name="viewname" id="viewname" value="'.$_GET["viewname"].'"/>';  
@@ -53,10 +70,66 @@ function churchcal_main() {
 }
 
 function churchcal_getAdminModel() {
-  $model = new CC_ModulModel("churchcal");      
+  global $config;
+
+  $model = new CC_ModulModel("churchcal");
+  if (!isset($config["churchcal_maincalname"]))
+    $config["churchcal_maincalname"]="Gemeindekalender";
+  $model->addField("churchcal_maincalname","", "INPUT_REQUIRED","Name des Hauptkalenders");
+  $model->fields["churchcal_maincalname"]->setValue($config["churchcal_maincalname"]);
+
+  if (!isset($config["churchcal_css"]))
+    $config["churchcal_css"]="";
+  $model->addField("churchcal_css","", "TEXTAREA","CSS f&uuml;r das Einbetten des Kalenders");
+  $model->fields["churchcal_css"]->setValue($config["churchcal_css"]);
+  
   return $model;
 }
 
+
+
+function churchcal_getUserOpenMeetingRequests() {
+  return '<div id="cc_openmeetingrequests"></div>';  
+}
+function churchcal_getUserMeetings() {
+  return '<div id="cc_nextmeetingrequests"></div>';
+}
+
+function churchcal_blocks() {
+  return (array(
+      1=>array(
+          "label"=>"Deine offenen Terminanfragen",
+          "col"=>2,
+          "sortkey"=>1,
+          "html"=>churchcal_getUserOpenMeetingRequests(),
+          "help"=>"Terminanfragen",
+          "class"=>"cal-request"
+      ),
+      2=>array(
+          "label"=>"Deine n&auml;chsten Terminzusagen",
+          "col"=>2,
+          "sortkey"=>2,
+          "html"=>churchcal_getUserMeetings(),
+          "help"=>"Terminanfragen",
+          "class"=>"cal-request"
+      )
+      
+      ));
+}
+
+
+function churchcal_getAuth() {
+  $cc_auth = array();
+  $cc_auth=addAuth($cc_auth, 401,'view', 'churchcal', null, 'ChurchCal sehen', 1);
+  $cc_auth=addAuth($cc_auth, 403,'view category', 'churchcal', 'cc_calcategory', 'Einzelne Kalender sehen', 0);
+  $cc_auth=addAuth($cc_auth, 404,'edit category', 'churchcal', 'cc_calcategory', 'In einzelnen Kalender Termine erstellen, editieren etc.', 0);
+  //$cc_auth=addAuth($cc_auth, 407,'create personal category', 'churchcal', null, 'Pers&ouml;nlichen Kalender erstellen', 1);
+  //$cc_auth=addAuth($cc_auth, 406,'admin personal category', 'churchcal', null, 'Pers&ouml;nliche Kalender administrieren', 1);
+  $cc_auth=addAuth($cc_auth, 408,'create group category', 'churchcal', null, 'Gruppenkalender erstellen', 1);
+  $cc_auth=addAuth($cc_auth, 405,'admin group category', 'churchcal', null, 'Gruppenkalender administrieren', 1);
+  $cc_auth=addAuth($cc_auth, 402,'admin church category', 'churchcal', null, 'Gemeindekalender administrieren', 1);
+  return $cc_auth;
+}
 
 
 function churchcal_getMyServices() {
@@ -78,25 +151,30 @@ function churchcal_getAbsents($params) {
   global $user;
   
   include_once(drupal_get_path('module', 'churchdb').'/churchdb_db.inc');
-  
-  $cal_ids=$params["cal_ids"];
   $persons=array();
-  // Wer hat explizit Freigaben fŸr den Kalender?
-  $db=db_query("select * from  {cc_domain_auth} d where d.auth_id=403 and d.daten_id in (".implode(",",$cal_ids).")");
-  if ($db!=false) { 
-    foreach ($db as $auth) {
-      if ($auth->domain_type=="person")
-        $persons[$auth->domain_id]=$auth->domain_id;
-      else if ($auth->domain_type=="gruppe") {
-        $allPersonIds=churchdb_getAllPeopleIdsFromGroups(array($auth->domain_id));
-        if ($allPersonIds!=false) {
-          foreach ($allPersonIds as $id) {
-            $persons[$id]=$id;
+  
+  if (isset($params["cal_ids"])) {
+    $cal_ids=$params["cal_ids"];
+    // Wer hat explizit Freigaben fŸr den Kalender?
+    $db=db_query("select * from  {cc_domain_auth} d where d.auth_id=403 and d.daten_id in (".implode(",",$cal_ids).")");
+    if ($db!=false) { 
+      foreach ($db as $auth) {
+        if ($auth->domain_type=="person")
+          $persons[$auth->domain_id]=$auth->domain_id;
+        else if ($auth->domain_type=="gruppe") {
+          $allPersonIds=churchdb_getAllPeopleIdsFromGroups(array($auth->domain_id));
+          if ($allPersonIds!=false) {
+            foreach ($allPersonIds as $id) {
+              $persons[$id]=$id;
+            }
           }
-        }
-      }          
-    }
-  }  
+        }          
+      }
+    }  
+  }
+  if (isset($params["person_id"])) {
+    $persons[$params["person_id"]]=$params["person_id"];
+  }
   
   $arrs=array();
   if (count($persons)>0) {
@@ -241,8 +319,12 @@ function churchcal_addAddition($params) {
 }
 
 function churchcal_delAddition($params) {
+  ct_log("del add", 1);
+  $db=db_query("select cal_id from {cc_cal_add} where id=:id", array(":id"=>$params["id"]))->fetch();
   
-  if (!churchcal_isAllowedToEditEvent($params["id"]))
+  if ($db==false)
+    throw new CTException("Manuellen Termin #"+$params["id"]+" nicht gefunden!");
+  if (!churchcal_isAllowedToEditEvent($db->cal_id))
     throw new CTNoPermission("AllowToEditEvent", "churchcal");
     
   $i = new CTInterface();
@@ -254,12 +336,33 @@ function churchcal_delAddition($params) {
     ->execute(false);
 }
 
-function churchcal_deleteEvent($params) {
+function churchcal_deleteEvent($params, $source=null) {
   $id=$params["id"];
   
   if (!churchcal_isAllowedToEditEvent($id))
     throw new CTNoPermission("AllowToEditEvent", "churchcal");
     
+  // BENACHRICHTIGE ANDERE MODULE
+  if (($source==null) || ($source!="churchresource")) {
+    include_once(drupal_get_path('module', 'churchresource') .'/churchresource_db.inc');
+    if ($source==null) $source="churchcal";
+    $params["cal_id"]=$params["id"];
+    churchresource_deleteResourcesFromChurchCal($params, $source);
+  }
+  if (($source==null) || ($source!="churchservice")) {
+    include_once(drupal_get_path('module', 'churchservice') .'/churchservice_db.inc');
+    $cs_params=array_merge(array(), $params);
+    $cs_params["cal_id"]=$params["id"];
+    $cs_params["informDeleteEvent"]=1;
+    $cs_params["deleteCalEntry"]=0;    
+    if ($source==null) $source="churchcal";
+    $db=db_query("select * from {cs_event} where cc_cal_id=:cal_id", array(":cal_id"=>$cs_params["cal_id"]));
+    foreach ($db as $cs) {
+      $cs_params["id"]=$cs->id;
+      churchservice_deleteEvent($cs_params, $source);
+    }
+  }  
+  
   db_query("delete from {cc_cal_except} where cal_id=:id", array(":id"=>$id));
   db_query("delete from {cc_cal_add} where cal_id=:id", array(":id"=>$id));
   db_query("delete from {cc_cal} where id=:id", array(":id"=>$id));
@@ -381,19 +484,36 @@ function churchcal_getAllEvents($cond="") {
   return $ret;
 }
 
+function churchcal_iAmOwner($category_id) {
+  global $user;
+  if ($category_id==null) return false;
+  $res=db_query('select modified_pid from {cc_calcategory} where id=:id', array(":id"=>$category_id))->fetch();
+  if (!$res) return false;
+  return $res->modified_pid==$user->id;
+}
+
 function churchcal_saveCategory($params) {
   global $user;
+  $id=null;
+  if (isset($params["id"])) $id=$params["id"];
   
   $auth=false;
-  if ((isset($params["id"])) && (churchcal_isAllowedToEditCategory($params["id"])))
-    $auth=true;
-  else if (($params["privat_yn"]==1) && ($params["oeffentlich_yn"]==0) && (user_access("personal category", "churchcal")))  
-    $auth=true;
-  else if (($params["privat_yn"]==0) && ($params["oeffentlich_yn"]==0) && (user_access("group category", "churchcal")))  
-    $auth=true;
-  else if (($params["privat_yn"]==0) && ($params["oeffentlich_yn"]==1) && (user_access("church category", "churchcal")))  
-    $auth=true;
-  else throw new CTNoPermission("AllowToEditCategory", "churchcal");   
+  if ($params["privat_yn"]==1 && $params["oeffentlich_yn"]==0) {
+    if ($id!=null) 
+      $auth=user_access("admin personal category", "churchcal") || churchcal_iAmOwner($id);  
+    else 
+      $auth=user_access("admin personal category", "churchcal") || user_access("create personal category", "churchcal");
+  }
+  else if ($params["privat_yn"]==0 && $params["oeffentlich_yn"]==0) {
+    if ($id!=null) 
+      $auth=user_access("admin group category", "churchcal") || churchcal_iAmOwner($id);  
+    else 
+      $auth=user_access("admin group category", "churchcal") || user_access("create group category", "churchcal");
+  }
+  else if ($params["privat_yn"]==0 && $params["oeffentlich_yn"]==1) {
+    $auth=user_access("admin church category", "churchcal") || churchcal_iAmOwner($id);  
+  }
+  if (!$auth) throw new CTNoPermission("Admin edit category", "churchcal");   
   
   $i = new CTInterface();
   $i->setParam("bezeichnung");
@@ -516,14 +636,16 @@ class CTChurchCalModule extends CTAbstractModule {
     $ret["churchservice_name"]=variable_get("churchservice_name");
     $ret["churchcal_name"]=variable_get("churchcal_name");
     $ret["churchresource_name"]=variable_get("churchresource_name");
+    $ret["maincal_name"]=variable_get("churchcal_maincalname", "Gemeindekalender");
     $ret["base_url"]=$base_url;
     $ret["user_pid"]=$user->id;
     if (user_access("view","churchdb")) {
       $ret["absent_reason"]=churchcore_getTableData("cs_absent_reason");
     }
-    if (user_access("view","churchresource")) {
-      $ret["resourcen"]=churchcore_getTableData("cr_resource");
+    if (user_access("view","churchresource") || user_access("create bookings","churchresource")) {
+      $ret["resources"]=churchcore_getTableData("cr_resource");
       $ret["resourceTypes"]=churchcore_getTableData("cr_resourcetype");
+      $ret["bookingStatus"]=churchcore_getTableData("cr_status");
     }
     $ret["category"]=churchcal_getAllowedCategories(true);
     $ret["settings"]=churchcore_getUserSettings("churchcal", $user->id);
@@ -535,6 +657,41 @@ class CTChurchCalModule extends CTAbstractModule {
     $ret["auth"]=churchcal_getAuthForAjax();  
     return $ret;
   } 
+  
+  
+  
+  public function getAllowedPeopleForCalender($params) {
+    include_once('./'. drupal_get_path('module', 'churchdb') .'/churchdb_db.inc');
+    $db=db_query("select * from {cc_domain_auth} where daten_id=:daten_id and auth_id=403",
+        array(":daten_id"=>$params["category_id"]));
+    $res=array();
+    foreach ($db as $d) {
+      if ($d->domain_type=="gruppe") {
+        $g=array();
+        $ids=churchdb_getAllPeopleIdsFromGroups(array($d->domain_id));
+        if ($ids!=null) {
+          foreach ($ids as $id) {
+            $p=churchdb_getPersonDetails($id);
+            if ($p!="no access") {
+              $g[]=$p;
+            }
+          }
+        }
+        if (count($g)>0) {
+          $gr=churchcore_getTableData("cdb_gruppe", null, "id=".$d->domain_id);
+          if ($gr!=false)
+            $res[]=array("type"=>"gruppe", "data"=>$g, "bezeichnung"=>$gr[$d->domain_id]->bezeichnung);
+        }        
+      }
+      else if ($d->domain_type=="person") {
+        $p=churchdb_getPersonDetails($d->domain_id);
+        if ($p!="no access") {
+          $res[]=array("type"=>"person", "data"=>$p);        
+        }        
+      }
+    }
+    return $res;
+  }
 }
 
 function churchcal__ajax() {
@@ -547,7 +704,7 @@ function churchcal__ajax() {
   $ajax->addFunction("getCalPerCategory", "view");
   $ajax->addFunction("getAbsents", "view");
   $ajax->addFunction("getMyServices", "view", "churchservice");
-  $ajax->addFunction("getBirthdays", "view", "churchservice"); 
+  $ajax->addFunction("getBirthdays", "view"); 
   $ajax->addFunction("deleteCategory", "view"); 
   $ajax->addFunction("updateEvent", "view"); 
   $ajax->addFunction("createEvent", "view"); 
@@ -568,7 +725,7 @@ function churchcal__ajax() {
 
 
 function churchcal__ical() {
-  global $base_url;
+  global $base_url, $config;
   include_once("system/churchcal/churchcal_db.inc");
   
   drupal_add_http_header('Content-Type','text/calendar;charset=utf-8',false);
@@ -576,14 +733,6 @@ function churchcal__ical() {
   drupal_add_http_header('Cache-Control','must-revalidate, post-check=0, pre-check=0',false);  
   drupal_add_http_header('Cache-Control','private',true);
   $content=drupal_get_header();
-
-  $txt="BEGIN:VCALENDAR\r\n"; 
-  $txt.="VERSION:2.0\r\n"; 
-  $txt.="PRODID:-//ChurchTools//DE\r\n"; 
-  $txt.="CALSCALE:GREGORIAN\r\n"; 
-  $txt.="X-WR-CALNAME:".variable_get('site_name', 'drupal')." ChurchCal-Kalender\r\n";
-  $txt.="X-WR-TIMEZONE:Europe/Berlin\r\n"; 
-  $txt.="METHOD:PUSH\r\n"; 
   
   $cat_names=null;
   
@@ -603,7 +752,7 @@ function churchcal__ical() {
   }
   $arr=churchcal_getCalPerCategory(array("category_ids"=>$cats), false);
   
-  
+  $txt="";
   foreach ($arr as $cats) {
     foreach ($cats as $res) {
     
@@ -617,7 +766,13 @@ function churchcal__ical() {
         $txt.="ORGANIZER:MAILTO:".variable_get('site_mail', '')."\r\n";
         $txt.="SUMMARY:".$res->bezeichnung."\r\n";
         //$txt.="X-MICROSOFT-CDO-BUSYSTATUS:BUSY\r\n"; 
-        $txt.="URL:".$base_url."?q=churchcal\r\n";
+        if ($res->link!="")
+          $txt.="URL:".$res->link."\r\n";
+        else
+          $txt.="URL:".$base_url."?q=churchcal\r\n";
+        if ($res->ort!="")
+          $txt.="LOCATION:".$res->ort."\r\n";
+          
         $subid++; 
         $txt.="UID:".$res->id."_$subid\r\n";
         $txt.="DTSTAMP:".churchcore_stringToDateICal($res->modified_date)."\r\n";
@@ -636,15 +791,13 @@ function churchcal__ical() {
           $txt.="DTEND:".$enddate->format('Ymd\THis')."\r\n";
         }
         
-        $txt.="DESCRIPTION:Kalender:".$cat_names[$res->category_id]->bezeichnung."; Cal[$res->id]\r\n"; 
+        $txt.='DESCRIPTION:Kalender:'.$cat_names[$res->category_id]->bezeichnung.' - Cal['.$res->id.'] - '.$res->notizen."\r\n"; 
         $txt.="END:VEVENT\r\n";
       } 
     }
   }
     
-  $txt.="END:VCALENDAR\r\n";
-
-  echo $txt;
+  echo surroundWithVCALENDER($txt);
 }
 
 ?>

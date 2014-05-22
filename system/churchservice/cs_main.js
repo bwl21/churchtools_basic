@@ -23,13 +23,12 @@ jQuery(document).ready(function() {
   churchInterface.registerView("ListView", listView);
   churchInterface.registerView("CalView", calView);
   churchInterface.registerView("FactView", factView);
-  churchInterface.registerView("ItemView", itemView);
+  churchInterface.registerView("AgendaView", agendaView);
   churchInterface.registerView("SongView", songView);
   //churchInterface.registerView("TestView", testView);
   churchInterface.registerView("MaintainView", maintainView);
   churchInterface.registerView("SettingsView", settingsView);
-  
-  
+
   // Lade alle Kennzeichentabellen
   cdb_loadMasterData(function() {
     var currentDate_externGesetzt=false;
@@ -65,20 +64,21 @@ jQuery(document).ready(function() {
           if (doit) listView.currentDate=first;
         }
       }
-      // Genug Daten um nun die Anwendung zu zeigen. 
-      // new: 27.1.13: RenderList reicht, denn Filter Šndert sich nix. 
-      churchInterface.getCurrentView().renderList();
-      churchInterface.sendMessageToAllViews("allDataLoaded");
       
-      // Lade nun alle Personendaten im Hintergrund weiter
-      window.setTimeout(function() {
-        cs_loadPersonDataFromCdb(function() {
+      cs_loadPersonDataFromCdb(function() {
+        // Genug Daten um nun die Anwendung zu zeigen. 
+        // new: 27.1.13: RenderList reicht, denn Filter Šndert sich nix. 
+        churchInterface.getCurrentView().renderList();
+        churchInterface.sendMessageToAllViews("allDataLoaded");
+        
+        // Lade nun alle Personendaten im Hintergrund weiter
+        window.setTimeout(function() {
           cs_loadAbsent(function() {
             cs_loadFiles(function() {
             });
           });
-        })
-      },10);
+        },10);
+      });
     }, false);    
   }, false);
 }); 

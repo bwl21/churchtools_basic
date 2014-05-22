@@ -6,6 +6,7 @@ function CalView() {
   this.name="CalView";
   this.currentDate=new Date();
   this.printview=false;
+  this.availableRowCounts=[10,25,50,200];
 }
 
 Temp.prototype = ListView.prototype;
@@ -71,6 +72,7 @@ CalView.prototype.getCountCols = function() {
 
 CalView.prototype.getListHeader = function () {
   var rows = new Array();
+  $("#cdb_group").html("");
   
   this.shiftCurrentDate();
   

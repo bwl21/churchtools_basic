@@ -34,7 +34,23 @@ FactView.prototype.renderMenu = function() {
         this_object.renderAddEntry();
       }
       else if ($(this).attr("id")=="aexport") {
-        churchcore_openNewWindow("?q=churchservice/exportfacts");
+        var rows=new Array();
+        rows.push('<legend>Zeitraum des Exportes</legend>');
+        rows.push('<p>Es k&ouml;nnen entweder alle Fakten exportiert werden, '+ 
+                     'oder die Fakten ab dem aktuell ausgew&auml;hlten Datum.');
+        var elem=form_showDialog('Export von Fakten', rows.join(""), 370, 300, {
+            "Alle Fakten": function() {    
+                churchcore_openNewWindow("?q=churchservice/exportfacts");
+                elem.dialog("close");
+            },
+            "Ab aktuellem Datum": function() {    
+              churchcore_openNewWindow("?q=churchservice/exportfacts&date="+this_object.currentDate.toStringEn(false));
+              elem.dialog("close");
+            },
+            "Abbruch": function() {    
+              elem.dialog("close");
+            }
+        });
       }
       else if ($(this).attr("id")=="ahelp") {
         churchcore_openNewWindow("http://intern.churchtools.de/?q=help&doc=ChurchService");
@@ -42,6 +58,10 @@ FactView.prototype.renderMenu = function() {
       return false;
     });
   }
+};
+
+FactView.prototype.renderEntryDetail = function (event_id) {
+  
 };
 
 
@@ -71,79 +91,64 @@ FactView.prototype.groupingFunction = function (event) {
   return txt;
 };
 
-function _processInputFact() {
-  var event_id=$("#inputFact").parents("td.editable").attr("event_id");
-  var fact_id=$("#inputFact").parents("td.editable").attr("fact_id");
-  if ((event_id!=null) && ($("#inputFact").val()!=null)) {
-    if (!($("#inputFact").val().replace(",",".")>=0)) {
-      alert("Wert muss >=0 sein!");
-      $("#inputFact").focus();
-      return false;
-    }
-    if (allEvents[event_id].facts==null)
-      allEvents[event_id].facts=new Object();
-    var o = new Object();
-    o.fact_id=fact_id;
-    o.value=$("#inputFact").val().replace(",",".");
-    churchInterface.jsendWrite({func:"saveFact",event_id:event_id,fact_id:fact_id,value:o.value}, function(ok, data) {
-      if (!ok) alert("Fehler beim Speichern: "+data);
-      else {
-        allEvents[event_id].facts[fact_id]=o;
-        $("#inputFact").parent().html(o.value);
-      }  
-    });
-  }
-  return true;
-}
-
-FactView.prototype.addFurtherListCallbacks = function() {
+FactView.prototype.addFurtherListCallbacks = function(cssid) {
   var t=this;
   
   if (masterData.auth.editfacts) {
-  
-    $("td.editable").hover(function() {
-        $(this).addClass("active");
-      },
-      function() {
-        $(this).removeClass("active");
-      }
-    );
-  
-  
-    $("td.editable").click(function(k) {
-  
-      // Wenn der Wert in Ordnung ist bzw. kein Wert da ist
-      if (_processInputFact(event_id, fact_id)) {
-        var event_id=$(this).attr("event_id");
-        var fact_id=$(this).attr("fact_id");
-        var _value="";
-        if ((event_id!=null) && (allEvents[event_id].facts!=null) && (allEvents[event_id].facts[fact_id]!=null)) {
-          _value=allEvents[event_id].facts[fact_id].value;
-        }
-        $(this).html(form_renderInput({value:_value, type:"mini", cssid:"inputFact"}));
-        $("#inputFact").focus();
-        $('#inputFact').keyup(function(e) {
-          // Enter
-          if (e.keyCode == 13) {
-            _processInputFact(event_id, fact_id);
-          }
-          // Escape
-          else if (e.keyCode == 27) {
-            var event_id=$("#inputFact").parents("td.editable").attr("event_id");
-            var fact_id=$("#inputFact").parents("td.editable").attr("fact_id");
-            if ((allEvents[event_id].facts!=null) && (allEvents[event_id].facts[fact_id]!=null))
-              $("#inputFact").parent().html(allEvents[event_id].facts[fact_id].value);
-            else
-              $("#inputFact").remove();
-          }
-        });
-      }
-    });
+
+    // Implements editable
+    $(cssid+" td.editable").each(function(k,a) {
+      var event_id=$(this).attr("event_id");
+      var fact_id=$(this).attr("fact_id");
+      $(this).editable({
+        
+        type: ($(this).hasClass("textarea")?"textarea":"input"),
+        
+        data: {event_id:event_id, fact_id:fact_id},
+        
+        autosaveSeconds: 5,
+        
+        rerenderEditor: 
+          function(txt) {
+            return txt.replace(",",".");
+          },
+        
+        validate:
+          function(newval, data) {
+            if (!isNumber(newval) && newval!="") {
+              alert("Bitte Zahl angeben oder Feld leer lassen!");
+              return false;
+            }
+            return true;
+          },
+        
+        success:
+          function(newval, data) {
+            if (allEvents[data.event_id].facts==null)
+              allEvents[data.event_id].facts=new Object();
+            o=$.extend({}, data);
+            o.value=newval;
+            o.func="saveFact";
+            churchInterface.jsendWrite(o, function(ok, data) {
+              if (!ok) alert("Fehler beim Speichern: "+data);
+              else {
+                allEvents[event_id].facts[fact_id]=o;
+              }  
+            });
+          },
+        
+        value: ((event_id!=null) && (allEvents[event_id].facts!=null) && (allEvents[event_id].facts[fact_id]!=null)?
+            allEvents[event_id].facts[fact_id].value:null)
+                 
+      });
+    });    
   }
 };
 
 FactView.prototype.getListHeader = function () {
   var this_object=this;
+  
+  $("#cdb_group").html("");
   
   if ((masterData.settings.filterCategory=="") || (masterData.settings.filterCategory==null))
     delete masterData.settings.filterCategory;

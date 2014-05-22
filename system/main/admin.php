@@ -26,7 +26,7 @@ class CC_ModulModel extends CC_Model {
 function admin_saveSettings($form) {
   foreach ($form->fields as $key=>$value) {
     db_query("insert into {cc_config} (name, value) values (:name,:value) on duplicate key update value=:value",
-        array(":name"=>$key, ":value"=>$value));
+       array(":name"=>$key, ":value"=>$value));
   }
   loadDBConfig();
 }
@@ -34,11 +34,18 @@ function admin_saveSettings($form) {
 function admin_main() {
   global $config;
   
+  drupal_add_css('system/assets/fileuploader/fileuploader.css'); 
+  drupal_add_js('system/assets/fileuploader/fileuploader.js');
+  
   $model = new CC_Model("AdminForm", "admin_saveSettings");
-  //$model->setHeader("Einstellungen f&uuml;r die Website", "Der Administrator kann hier Einstellung vornehmen. Diese gelten f&uuml;r alle Benutzer, bitte vorsichtig anpassen!");    
   $model->addField("site_name","", "INPUT_REQUIRED","Name der Website");
     $model->fields["site_name"]->setValue($config["site_name"]);
   
+
+  $model->addField("site_logo","", "FILEUPLOAD","Logo der Website (max. 32x32px)");
+  if (isset($config["site_logo"]))
+    $model->fields["site_logo"]->setValue($config["site_logo"]);
+    
   $model->addField("welcome","", "INPUT_REQUIRED","Willkommensnachricht");
     $model->fields["welcome"]->setValue($config["welcome"]);
     
@@ -51,11 +58,15 @@ function admin_main() {
   $model->addField("admin_message","", "INPUT_OPTIONAL","Admin-Nachricht auf Login- und Startseite z.B. f&uuml;r geplante Downtimes");
     $model->fields["admin_message"]->setValue(isset($config["admin_message"])?$config["admin_message"]:"");
     
+  if (!isset($config["site_startpage"])) $config["site_startpage"]="home";
+  $model->addField("site_startpage","", "INPUT_REQUIRED","Startseite beim Aufrufen von ".variable_get("site_name")." (Standard ist <i>home</i>, m&ouml;glich ist z.B. churchwiki, churchcal)");
+    $model->fields["site_startpage"]->setValue($config["site_startpage"]);
+    
   $model->addField("site_mail","", "EMAIL","E-Mail-Adresse der Website (E-Mails werden von hier aus gesendet)");
     $model->fields["site_mail"]->setValue($config["site_mail"]);
 
   // Now iterate through each module for naming the module
-  $modules=churchcore_getModulesSorted();
+  $modules=churchcore_getModulesSorted(false, true);
   foreach ($modules as $module) {
     $model->addField($module."_name","", "INPUT_OPTIONAL","Name f&uuml;r <i>$module</i> (Bitte Feld leerlassen, wenn das Modul nicht ben&ouml;tigt wird)");
       $model->fields[$module."_name"]->setValue($config[$module."_name"]);       
@@ -67,6 +78,8 @@ function admin_main() {
   $model->addField("cronjob_delay","", "INPUT_REQUIRED","Zeit in Sekunden zwischen automatischen Cronjob (0=kein automatischer Cron, sinnvolle Werte z.B. 3600)");
     $model->fields["cronjob_delay"]->setValue($config["cronjob_delay"]);
   
+  $model->addField("timezone","", "INPUT_REQUIRED","Standard-Zeitzone. Z.b. Europe/Berlin");
+    $model->fields["timezone"]->setValue($config["timezone"]);
     
   $model->addField("show_remember_me","", "CHECKBOX","Anzeige von <i>Zuk&uuml;nftig an mich erinnern</i> auf der Login-Seite");
     $model->fields["show_remember_me"]->setValue($config["show_remember_me"]);
@@ -93,7 +106,7 @@ function admin_main() {
     }
   }
     
-  $txt='<h1>Einstellungen f&uuml;r die Website</h1><p>Der Administrator kann hier Einstellung vornehmen. Diese gelten f&uuml;r alle Benutzer, bitte vorsichtig anpassen!</p>';
+  $txt='<h1>Einstellungen f&uuml;r '.variable_get("site_name").'</h1><p>Der Administrator kann hier Einstellung vornehmen. Diese gelten f&uuml;r alle Benutzer, bitte vorsichtig anpassen!</p>';
   $txt.='<div class="tabbable">';
   $txt.='<ul class="nav nav-tabs">';
     $txt.='<li class="active"><a href="#tab1" data-toggle="tab">Allgemein</a></li>';
@@ -118,5 +131,35 @@ function admin_main() {
   
   return $txt;
 }
+
+
+function admin__uploadfile() {
+  global $files_dir, $config;
+  
+  include_once("system/churchcore/uploadFile.php");
+  churchcore__uploadFile();
+}
+
+class CTAdminModule extends CTAbstractModule {
+  function getMasterData() {
+    
+  }
+  function saveLogo($params) {
+    if ($params["filename"]==null)
+      db_query("delete from {cc_config} where name='site_logo'");
+    else 
+      db_query("insert into {cc_config} (name, value) values ('site_logo', :filename) on duplicate key update value=:filename", 
+       array(":filename"=>$params["filename"]));
+  }
+}
+
+function admin__ajax() {
+  $module=new CTAdminModule("admin");
+  $ajax = new CTAjaxHandler($module);
+
+  drupal_json_output($ajax->call());
+}
+
+
 
 ?>

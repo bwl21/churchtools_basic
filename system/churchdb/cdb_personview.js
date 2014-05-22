@@ -25,6 +25,18 @@ Temp.prototype = CDBStandardTableView.prototype;
 PersonView.prototype = new Temp();
 personView = new PersonView();
 
+function f(selector) {
+  if (masterData.fields==null) return null;
+  var res="!!"+selector+"!!";
+  $.each(masterData.fields, function(i,c) {
+    if (c.fields!=null && c.fields[selector]!=null) {
+      res=c.fields[selector].text;
+      return false;
+    }
+  });
+  return res;
+}
+
 PersonView.prototype.getData = function(sorted, newSort /*default:true*/) {
   if (sorted) {
     if ((newSort==null) || (newSort==true) || (this.sortedData==null)) {
@@ -46,9 +58,9 @@ PersonView.prototype.renderMenu = function() {
   
   menu = new CC_Menu(_("menu"));
   if (menuDepth=="amain") {
-    if (masterData.auth.write)
+    if (masterData.auth["create person"])
       menu.addEntry("Neue Person anlegen", "anewentry", "star");
-    if (masterData.auth.viewalldata)
+    if (user_access("complex filter"))
       menu.addEntry("Weitere Filter", "aaddfilter", "filter");  
     menu.addEntry("Exporter", "aexporter", "share");
     menu.addEntry("E-Mailer", "amailer", "envelope");
@@ -145,7 +157,7 @@ PersonView.prototype.renderMenu = function() {
 PersonView.prototype.renderListMenu = function() {
   var t=this;
   
-  // MenŸleiste oberhalb
+  // Menï¿½leiste oberhalb
   if ($("searchEntry").val()!=null) 
     searchEntry=$("searchEntry").val();
   else
@@ -175,7 +187,7 @@ PersonView.prototype.renderListMenu = function() {
           ul.append( "<li class='ui-autocompldete-category'><small><b> " + item.category + "<b></small></li>" );
           currentCategory = item.category;
         }
-        that._renderItem( ul, item );
+        that._renderItemData( ul, item );
       });
     }
   });  
@@ -194,16 +206,20 @@ PersonView.prototype.renderListMenu = function() {
           if (n.toUpperCase().indexOf(str)>=0)
             r.push({label:a.vorname+" "+a.name, category:"", value:"#"+a.id});              
         });
-        $.each(masterData.groups, function(k,a) {
-          if (groupView.isAllowedToSee(a.id))
-            if ((str=="GRUPPE:") || (a.bezeichnung.toUpperCase().indexOf(str)>=0) || (("GRUPPE:"+a.bezeichnung.toUpperCase()).indexOf(str)>=0))
-              r.push({label:a.bezeichnung, category:"Gruppe", value:'gruppe:"'+a.bezeichnung+'"'});              
-        });
-        $.each(masterData.tags, function(k,a) {
-          if ((str=="TAG:") || (a.bezeichnung.toUpperCase().indexOf(str)>=0) || (("TAG:"+a.bezeichnung.toUpperCase()).indexOf(str)>=0))
-            r.push({label:a.bezeichnung, category:"Tag", value:'tag:"'+a.bezeichnung+'"'});              
-        });
-        if ((r.length==0) && (str.indexOf("GRUPPE")==-1) && (str.indexOf("TAG")==-1) && (masterData.auth.write) && (str.indexOf("#")==-1))
+        if (masterData.groups!=null) {
+          $.each(masterData.groups, function(k,a) {
+            if (groupView.isAllowedToSeeDetails(a.id))
+              if ((str=="GRUPPE:") || (a.bezeichnung.toUpperCase().indexOf(str)>=0) || (("GRUPPE:"+a.bezeichnung.toUpperCase()).indexOf(str)>=0))
+                r.push({label:a.bezeichnung, category:"Gruppe", value:'gruppe:"'+a.bezeichnung+'"'});              
+          });
+        }
+        if (masterData.tags!=null) {
+          $.each(masterData.tags, function(k,a) {
+            if ((str=="TAG:") || (a.bezeichnung.toUpperCase().indexOf(str)>=0) || (("TAG:"+a.bezeichnung.toUpperCase()).indexOf(str)>=0))
+              r.push({label:a.bezeichnung, category:"Tag", value:'tag:"'+a.bezeichnung+'"'});              
+          });
+        }
+        if ((r.length==0) && (str.indexOf("GRUPPE")==-1) && (str.indexOf("TAG")==-1) && (user_access("create person")) && (str.indexOf("#")==-1))
           r.push({label:"Erstelle "+request.term, category:"", value:"CREATE:"+request.term});
         response(r);
       }
@@ -223,7 +239,7 @@ PersonView.prototype.renderListMenu = function() {
         },10);
       }
       else {
-        // Leider mu§ ich hier TimeOut setzen, denn sonst ist der Wert noch nicht in der OberflŠche angekommen...
+        // Leider muï¿½ ich hier TimeOut setzen, denn sonst ist der Wert noch nicht in der Oberflï¿½che angekommen...
         window.setTimeout(function(){        
           $("#searchEntry").trigger( "keyup" );
           // For iOS to close the virtual keyboard
@@ -286,10 +302,10 @@ PersonView.prototype.renderAddEntry = function(prefill) {
     masterData.settings.newPersonStatus=1;
   if (masterData.settings.newPersonStation==null)
     masterData.settings.newPersonStation=1;
-  form.addSelect({data: masterData.auth.dep, selected:masterData.settings.newPersonBereich, cssid:"Inputf_dep", label:"Bereich"});
-  form.addSelect({data: masterData.status, selected:masterData.settings.newPersonStatus, cssid:"Inputf_status", label:"Status"});  
+  form.addSelect({data: masterData.auth.dep, selected:masterData.settings.newPersonBereich, cssid:"Inputf_dep", label:f("bereich_id")});
+  form.addSelect({data: masterData.status, selected:masterData.settings.newPersonStatus, cssid:"Inputf_status", label:f("status_id")});  
   if (masterData.fields.f_category.fields.station_id!=null) 
-    form.addSelect({data: masterData.station, selected:masterData.settings.newPersonStation, cssid:"Inputf_station", label:"Station"});
+    form.addSelect({data: masterData.station, selected:masterData.settings.newPersonStation, cssid:"Inputf_station", label:f("station_id")});
   _text=_text+form.render();
 
   var form = new CC_Form("Gruppen");
@@ -297,16 +313,30 @@ PersonView.prototype.renderAddEntry = function(prefill) {
   if (masterData.groups!=null) {
     var diff_date=new Date();
     diff_date.addDays(-1*masterData.groupnotchoosable);
-    $.each(masterData.groupTypes, function(k,a) {
-      if (a.in_neue_person_erstellen_yn==1) {      
-        var data=new Array(); 
+    if (masterData.auth.editgroups) {
+      $.each(masterData.groupTypes, function(k,a) {
+        if (a.in_neue_person_erstellen_yn==1) {      
+          var data=new Array(); 
+          $.each(masterData.groups, function(i,b) {
+            if ((b.gruppentyp_id==a.id) && (b.valid_yn==1) && (b.versteckt_yn==0) && ((b.abschlussdatum==null) || (b.abschlussdatum.toDateEn()>diff_date)))
+              data.push(form_prepareDataEntry(b.id, b.bezeichnung));
+          });
+          form.addSelect({data:data, freeoption:true, cssid:"createGroup", label:a.bezeichnung});
+        }  
+      });
+    }
+    else {
+      // Get groups, only where I am a leader. No free option. 
+      var data=new Array(); 
+      $.each(masterData.groupTypes, function(k,a) {
         $.each(masterData.groups, function(i,b) {
           if ((b.gruppentyp_id==a.id) && (b.valid_yn==1) && (b.versteckt_yn==0) && ((b.abschlussdatum==null) || (b.abschlussdatum.toDateEn()>diff_date)))
+            if (groupView.isPersonLeaderOfGroup(masterData.user_pid, b.id))
             data.push(form_prepareDataEntry(b.id, b.bezeichnung));
         });
-        form.addSelect({data:data, freeoption:true, cssid:"createGroup", label:a.bezeichnung});
-      }  
-    });
+      });
+      form.addSelect({data:data, freeoption:false, cssid:"createGroup", label:"Meine Gruppen"});
+    }    
   }
   _text=_text+form.render();
   
@@ -406,6 +436,18 @@ PersonView.prototype.isPersonLeaderOfPerson = function (leader_id, p_id) {
   });  
   return res;
 };
+PersonView.prototype.isPersonSuperLeaderOfPerson = function (leader_id, p_id) {
+  if (allPersons[p_id].gruppe==null) return false;
+  var res=false;
+  $.each(allPersons[p_id].gruppe, function(k,gruppe) {
+    if (groupView.isPersonSuperLeaderOfGroup(leader_id, gruppe.id)) {
+      res=true;
+      // exit
+      return false;
+    }
+  });  
+  return res;
+};
 
 PersonView.prototype.isPersonLeaderOfOneGroupTypeOfPerson = function (leader_id, grouptype_id, p_id) {
   if (allPersons[p_id].gruppe==null) return false;
@@ -457,21 +499,20 @@ PersonView.prototype.addPersonGroupRelation = function(id, g_id, memberstatus_no
     return false;
   }
   else {  
-    if (allPersons[id]==null) { 
+    arr=new Object();
+    arr.id=g_id;
+    arr.leiter=memberstatus_no;
+    arr.d=new Date().toStringEn();
+    if (allPersons[id]==null) {
+      allPersons[id]=new Object();
       churchInterface.jsendRead({func:"getPersonDetails", id:id}, function(ok, json) {
         allPersons[json.id]=cdb_mapJsonDetails(json, allPersons[json.id]);
       }, false);
     }
-    else {      
-      arr=new Object();
-      arr.id=g_id;
-      arr.leiter=memberstatus_no;
-      arr.d=new Date().toStringEn();
-      if (allPersons[id].gruppe==null)
-        allPersons[id].gruppe=new Object();
-  
-      allPersons[id].gruppe[arr.id]=arr;
-    }
+    if (allPersons[id].gruppe==null)
+      allPersons[id].gruppe=new Object();
+
+    allPersons[id].gruppe[arr.id]=arr;
     this.renderTodos();
     return true;
   }
@@ -479,7 +520,7 @@ PersonView.prototype.addPersonGroupRelation = function(id, g_id, memberstatus_no
 
 PersonView.prototype.addSecondMenu = function() {
   rows = new Array();
-  // Gruppenfunktionen sind nur erlaubt, wenn ich Leiter der ausgewŠhlten Gruppe bin, oder ich Schreibrechte habe
+  // Gruppenfunktionen sind nur erlaubt, wenn ich Leiter der ausgewï¿½hlten Gruppe bin, oder ich Schreibrechte habe
   rows.push("<p></p>");
   if ((this.filter["filterMeine Gruppen"]>0) && 
        ((groupView.isPersonLeaderOfGroup(masterData.user_pid,this.filter["filterMeine Gruppen"])) || (masterData.auth.write))) { 
@@ -498,6 +539,10 @@ PersonView.prototype.addSecondMenu = function() {
       rows.push('<option value="addPersonAuth">... ein Zugriffssrecht hinzuf&uuml;gen');
     if ((masterData.auth["push/pull archive"]) && (t.name=="PersonView"))
       rows.push('<option value="archivePerson">... ins Archiv verschieben');
+    
+    if (churchInterface.isCurrentView("ArchiveView") && (masterData.auth.admin || masterData.auth.adminpersons))
+      rows.push('<option value="deletePerson">... endg&uuml;ltig l&ouml;schen');    
+    
     rows.push('</select>');
   }
   
@@ -506,15 +551,17 @@ PersonView.prototype.addSecondMenu = function() {
 };
 
 
-PersonView.prototype.renderTooltip = function(tooltip, divid) {
-  var t=this;
-  
+function renderPersonTooltip(id) {
   function _renderTooltipDetails(id) {
     var a=allPersons[id];
     txt="<b>"+a.vorname+" "+a.name;
 
-    if (a.geburtsdatum!=null)
-      txt=txt+" ("+a.geburtsdatum.toDateEn().getAgeInYears()+")";
+    if (a.geburtsdatum!=null && a.geburtsdatum.toDateEn().getAgeInYears().txt!=null) {
+      var age=a.geburtsdatum.toDateEn().getAgeInYears().txt;
+      if (age!=null) {
+        txt=txt+" ("+age+")";        
+      }
+    }
     txt=txt+"</b><br/>";
     
     if ((masterData.auth.viewaddress) || (masterData.auth.viewalldetails))
@@ -533,11 +580,11 @@ PersonView.prototype.renderTooltip = function(tooltip, divid) {
     return txt;
   }
   var txt="";
-  var id=tooltip.attr("tooltip");
+  var id;
   
   if (id>0) {
-    txt=txt+this.renderPersonImage(id);
-    txt='<br/><div class="tooltip_gesamt"><div class="tooltip_foto">'+txt+'</div><div id="cdb_tooltipdetail" class="tooltip_address">';
+    txt=txt+personView.renderPersonImage(id);
+    txt='<br/><div class="tooltip_gesamt" style="min-width:300px"><div class="tooltip_foto">'+txt+'</div><div id="cdb_tooltipdetail" class="tooltip_address">';
     
     if (allPersons[id].details) {
       txt=txt+_renderTooltipDetails(id)+'</div><div style="clear:both"></div></div>';
@@ -547,8 +594,8 @@ PersonView.prototype.renderTooltip = function(tooltip, divid) {
       churchInterface.jsendRead({func:"getPersonDetails", id:id}, function(ok, json) {
         if (json!="no access") {
           allPersons[json.id]=cdb_mapJsonDetails(json, allPersons[json.id]);       
-          //t.prepareTooltip(tooltip, 0);
-          t.renderTooltip2Div(tooltip, divid);
+          if (currentTooltip!=null)
+            currentTooltip.tooltips("refresh");
           txt=null;
         }
         else $("#cdb_tooltipdetail").html("<i>Keine Berechtigung</i>");
@@ -556,32 +603,33 @@ PersonView.prototype.renderTooltip = function(tooltip, divid) {
     }
     return [txt, ""];
   }
-  // Gruppentreffen
-  else if (id==-1) {
-    var txt="<p>";
-    var meeting=t.getMeetingFromMeetingList(tooltip.attr("data-group-id"), tooltip.attr("data-gruppentreffen-id"));
-    if (meeting!=null) {
-      if (meeting.kommentar!=null) {
-          txt=txt+'<div class="well"><i>Kommentar: </i><br><small><i>'+meeting.kommentar;
-          txt=txt+'<p>'+meeting.modified_date.toDateEn(false).toStringDe(false);
-          if (allPersons[meeting.modified_pid]!=null)
-            txt=txt+" "+allPersons[meeting.modified_pid].vorname+" "+allPersons[meeting.modified_pid].name+"";
-          else
-            txt=txt+" ["+meeting.modified_pid+"]";
-          txt=txt+"</i></small></div>";
-      }
-      else
-        txt=txt+"Kein Kommentar vorhanden";
-      if (meeting.anzahl_gaeste!=null)
-          txt=txt+"<p>Anzahl G&auml;ste: "+meeting.anzahl_gaeste;
-      txt=txt+"<p>"+form_renderButton({label:"Editieren", htmlclass:"edit btn-success", type:"small"})+" ";
-      txt=txt+""+form_renderButton({label:"Entfernen", htmlclass:"delete btn-danger", type:"small"});
-      txt=txt+form_renderHidden({cssid:"data-group-id", value:tooltip.attr("data-group-id")});
-      txt=txt+form_renderHidden({cssid:"data-datum", value:tooltip.attr("data-datum")});
-      txt=txt+form_renderHidden({cssid:"data-gruppentreffen-id", value:meeting.id});
-      return [txt];
-    };
-  }
+};
+
+PersonView.prototype.renderGroupmeetingTooltip = function(group_id, groupmeeting_id, meetingdate) {
+  var t=this;
+  var txt="<p>";
+  var meeting=t.getMeetingFromMeetingList(group_id, groupmeeting_id);
+  if (meeting!=null) {
+    if (meeting.kommentar!=null) {
+        txt=txt+'<div class="well"><i>Kommentar: </i><br><small><i>'+meeting.kommentar;
+        txt=txt+'<p>'+meeting.modified_date.toDateEn(false).toStringDe(false);
+        if (allPersons[meeting.modified_pid]!=null)
+          txt=txt+" "+allPersons[meeting.modified_pid].vorname+" "+allPersons[meeting.modified_pid].name+"";
+        else
+          txt=txt+" ["+meeting.modified_pid+"]";
+        txt=txt+"</i></small></div>";
+    }
+    else
+      txt=txt+"Kein Kommentar vorhanden";
+    if (meeting.anzahl_gaeste!=null)
+        txt=txt+"<p>Anzahl G&auml;ste: "+meeting.anzahl_gaeste;
+    txt=txt+"<p>"+form_renderButton({label:"Editieren", htmlclass:"edit btn-success", type:"small"})+" ";
+    txt=txt+""+form_renderButton({label:"Entfernen", htmlclass:"delete btn-danger", type:"small"});
+    txt=txt+form_renderHidden({cssid:"data-group-id", value:group_id});
+    txt=txt+form_renderHidden({cssid:"data-datum", value:meetingdate});
+    txt=txt+form_renderHidden({cssid:"data-gruppentreffen-id", value:meeting.id});
+    return [txt];
+  };
 };
 
 PersonView.prototype.getMeetingFromMeetingList = function (g_id, gruppentreffen_id) {
@@ -595,38 +643,17 @@ PersonView.prototype.getMeetingFromMeetingList = function (g_id, gruppentreffen_
   return res;
 };
 
-PersonView.prototype.tooltipCallback = function(id, tooltip) {
-  var t=this;
-  tooltip.find("input.delete").click(function() {
-    t.clearTooltip(true);
-    var g_id=$("#data-group-id").val();
-    if (confirm("Wirklich das Treffen vom "+$("#data-datum").val().toDateEn(true).toStringDe()+" entfernen?")) {
-      churchInterface.jsendWrite({func:"GroupMeeting", sub:"delete", id:$("#data-gruppentreffen-id").val()}, function(ok) {
-        if (ok) {
-          cdb_loadGroupMeetingStats(churchInterface.getCurrentView().filter, g_id, function() {
-            masterData.groups[g_id].meetingList=null;
-            personView.renderList();
-          });
-        }
-      });
-      
-    }
-  });
-  tooltip.find("input.edit").click(function() {
-    t.clearTooltip(true);
-    t.editMeetingProperties($("#data-group-id").val(), $("#data-gruppentreffen-id").val());
-  });
-};
-
 PersonView.prototype.editMeetingProperties = function(g_id, treffen_id) {
   var t=this;
   var meeting=t.getMeetingFromMeetingList(g_id, treffen_id);
   if (meeting!=null) {
-    var form=new CC_Form();       
+    var form=new CC_Form(null);       
+    form.addInput({label:"Datum",cssid:"inputmeetingdate", value:meeting.datumvon.toDateEn(false).toStringDe(), datepicker:"dp_meetingdate"});
+    form.addInput({label:"Uhrzeit",value:meeting.datumvon.toDateEn(true).toStringDeTime()});
     form.addInput({label:"Anzahl G&auml;ste", value:meeting.anzahl_gaeste, cssid:"anzahl_gaeste"});
     form.addTextarea({label:"Kommentar", rows:4, data:meeting.kommentar, placeholder:"Kommentar", cssid:"kommentar"});
     
-    var elem=form_showDialog("Treffen editieren", form.render(null, "vertical"), 300, 350, {
+    var elem=form_showDialog("Gruppentreffen editieren", form.render(null, "horizontal"), 500, 400, {
       "Speichern": function() {
         var obj=form.getAllValsAsObject();
         obj.func="GroupMeeting";
@@ -634,6 +661,10 @@ PersonView.prototype.editMeetingProperties = function(g_id, treffen_id) {
         obj.id=treffen_id;
         obj.g_id=g_id;
         var save=$.extend({}, meeting);
+        obj.datumvon=obj.inputmeetingdate.toDateDe().toStringEn(false)+" "+obj.Uhrzeit;
+        obj.datumbis=obj.datumvon;
+        meeting.datumvon=obj.datumvon
+        meeting.datumbis=obj.datumvon;        
         meeting.kommentar=obj.kommentar;
         meeting.anzahl_gaeste=obj.anzahl_gaeste;
         if (meeting.anzahl_gaeste=="") meeting.anzahl_gaeste=0;
@@ -648,19 +679,110 @@ PersonView.prototype.editMeetingProperties = function(g_id, treffen_id) {
         t.renderList();
         $(this).dialog("close");
       },
-      "Abbruch": function() {
+      "Abbrechen": function() {
         $(this).dialog("close");
       }
     });
+    $("#inputmeetingdate").click(function() {
+      form_implantDatePicker("dp_meetingdate", dt.toStringDe(), function(dateText) {    
+        $("#inputmeetingdate").val(dateText.toDateDe().toStringDe());
+      });
+    });
+    
+    
   }
   else alert("Treffen nicht gefunden!?");  
+  
+};
+
+
+PersonView.prototype.addPersonsTooltip = function(element) {
+  element.find(".tooltip-person").each(function() {
+    var tooltip=$(this);
+    tooltip.tooltips({
+      data:{id:$(this).attr("data-tooltip-id")},
+      render:function(data) {
+        return renderPersonTooltip(data.id);
+      }      
+    });    
+  });  
+};
+
+PersonView.prototype.addGroupMeetingDate = function() {
+  var form=new CC_Form("Ein Gruppentreffen hinzuf&uuml;gen");
+  var dt=new Date();
+  form.addInput({label:"Datum",cssid:"inputmeetingdate", value:dt.toStringDe(false), datepicker:"dp_meetingdate"});
+  form.addInput({label:"Uhrzeit",value:"10:00"});
+  form.addHtml('<p><small>Hinweis: Dieses Gruppentreffen wird nur fÃ¼r diese Gruppe angelegt. ');
+  form.addHtml('<a href="https://intern.churchtools.de/?q=churchwiki#WikiView/filterWikicategory_id:0/doc:Gruppentreffen/" target="_clean"><i class="icon-question-sign"></i></a>');
+  var elem=form_showDialog("Gruppentreffen", form.render(), 400, 400, {
+    "Speichern": function() {
+      var obj=form.getAllValsAsObject();
+      obj.datumvon=obj.inputmeetingdate.toDateDe().toStringEn(false)+" "+obj.Uhrzeit;
+      obj.datumbis=obj.datumvon;
+      obj.gruppe_id=t.filter["filterMeine Gruppen"];
+      obj.func="addEvent";
+      churchInterface.jsendWrite(obj, function(ok, data) {
+        elem.dialog("close");
+        t.loadGroupMeetingList(t.filter["filterMeine Gruppen"]);            
+      });
+    },
+    "Abbrechen": function() {
+      $(this).dialog("close");
+    }
+  }); 
+  $("#inputmeetingdate").click(function() {
+    form_implantDatePicker("dp_meetingdate", dt.toStringDe(), function(dateText) {    
+      $("#inputmeetingdate").val(dateText.toDateDe().toStringDe());
+    });
+  });
+  
   
 };
 
 PersonView.prototype.addFurtherListCallbacks = function(cssid) {
   var t=this;
   
+  t.addPersonsTooltip($("#cdb_content"));
+  
+  $("#cdb_content span.tooltip-groupmeeting").each(function() {
+    var tooltip=$(this);
+    tooltip.tooltips({
+      data:{group_id:$(this).attr("data-tooltip-id"),
+            groupmeeting_id:$(this).attr("data-gruppentreffen-id"),
+            meetingdate:$(this).attr("data-datum")
+      },
+      render:function(data) {
+        return t.renderGroupmeetingTooltip(data.group_id, data.groupmeeting_id, data.meetingdate);
+      },
+      
+      afterRender: function(element, data) {
+        t.currentTooltip=$(tooltip);
+        element.find("input.delete").click(function() {
+          if (confirm("Wirklich das Treffen vom "+data.meetingdate.toDateEn(true).toStringDe()+" entfernen?")) {
+            churchInterface.jsendWrite({func:"GroupMeeting", sub:"delete", id:data.groupmeeting_id}, function(ok) {
+              if (ok) {
+                cdb_loadGroupMeetingStats(churchInterface.getCurrentView().filter, data.group_id, function() {
+                  masterData.groups[data.group_id].meetingList=null;
+                  personView.renderList();
+                });
+              }
+            });
+            
+          }
+        });
+        element.find("input.edit").click(function() {
+          clearTooltip();
+          t.editMeetingProperties(data.group_id, data.groupmeeting_id);
+        });        
+      }
+    });    
+  });
+
+
+  
   $("#cdb_content a").click(function (a) {
+    clearTooltip();
     if ($(this).attr("id")==null)
       return true;
     else if ($(this).attr("id")=="addtogroup") {
@@ -719,35 +841,15 @@ PersonView.prototype.addFurtherListCallbacks = function(cssid) {
       r.renderView();
     }
     else if ($(this).attr("id")=="editGruppentreffenProperties") {
-      t.clearTooltip(true);
+      clearTooltip(true);
       t.editMeetingProperties($(this).attr("data-group-id"), $(this).attr("data-gruppentreffen-id"));
     }
     else if ($(this).attr("id")=="addGruppenteilnehmerdatum") {
-      var form=new CC_Form("Event hinzuf&uuml;gen");
-      var dt=new Date();
-      form.addInput({label:"Datum",value:dt.toStringDe(false)});
-      form.addInput({label:"Uhrzeit",value:"10:00"});
-      var elem=form_showDialog("Gruppenteilnahme", form.render(), 400, 400, {
-        "Speichern": function() {
-          var obj=form.getAllValsAsObject();
-          obj.datumvon=obj.Datum.toDateDe().toStringEn(false)+" "+obj.Uhrzeit;
-          obj.datumbis=obj.datumvon;
-          obj.gruppe_id=t.filter["filterMeine Gruppen"];
-          obj.func="addEvent";
-          churchInterface.jsendWrite(obj, function(ok, data) {
-            elem.dialog("close");
-            t.loadGroupMeetingList(t.filter["filterMeine Gruppen"]);            
-          });
-        },
-        "Abbruch": function() {
-          $(this).dialog("close");
-        }
-      });
+      t.addGroupMeetingDate();
     }
   });
   if (cssid=="#cdb_content") { 
     $("#cdb_content span.clickyesno").click(function() {
-      console.log("cli");
       var m=t.getMeetingFromMeetingList(t.filter["filterMeine Gruppen"], $(this).attr("data-gruppentreffen-id"));
       var p_id=$(this).attr("data-person-id");
       var entry=null;
@@ -783,32 +885,32 @@ PersonView.prototype.addFurtherListCallbacks = function(cssid) {
       window.setTimeout(function() { $(document).scrollTop(pos);}, 10);
       return false;
     });
-  }
   
-  // Auswahl des Gruppentyps fuer die Spalte Gruppe
-  $("#cdb_content select").change(function(c) {
-    if (this.id=="filterGruppentyp") {
-      var oldval=masterData.settings.selectedGroupType;
-      masterData.settings.selectedGroupType=$(this).val();
-      churchInterface.jsendWrite({func:"saveSetting", sub:"selectedGroupType", val:$(this).val()});
-      if ((masterData.settings.selectedGroupType==-4) && (t.filter['filterMeine Gruppen']==null)) {
-        alert('Bitte erst eine Gruppe unter "Meine Filter" einstellen');
-        masterData.settings.selectedGroupType=oldval;
+    // Auswahl des Gruppentyps fuer die Spalte Gruppe
+    $("#cdb_content select").change(function(c) {
+      if (this.id=="filterGruppentyp") {
+        var oldval=masterData.settings.selectedGroupType;
+        masterData.settings.selectedGroupType=$(this).val();
+        churchInterface.jsendWrite({func:"saveSetting", sub:"selectedGroupType", val:$(this).val()});
+        if ((masterData.settings.selectedGroupType==-4) && (t.filter['filterMeine Gruppen']==null)) {
+          alert('Bitte erst eine Gruppe unter "Meine Filter" einstellen');
+          masterData.settings.selectedGroupType=oldval;
+        }
+        else 
+          t.renderGroupEntry();
+        t.renderList();
       }
-      else 
-        t.renderGroupEntry();
-      t.renderList();
-    }
-    else if (this.id=="personFunction") {
-      t.personFunction(this.value);
-      $(this).val(-1);
-    }
-  });   
+      else if (this.id=="personFunction") {
+        t.personFunction(this.value);
+        $(this).val(-1);
+      }
+    });
+  }
 };
 
 /**
- * value: Welche Aktion wurde gewŠhlt
- * param: ein belibiegr Parameter zur †bergabe
+ * value: Welche Aktion wurde gewï¿½hlt
+ * param: ein belibiegr Parameter zur ï¿½bergabe
  */
 PersonView.prototype.personFunction = function (value, param) {
   var t=this;
@@ -824,7 +926,7 @@ PersonView.prototype.personFunction = function (value, param) {
       form.setLabel("Bitte Gruppe ausw&auml;hlen");
       form.addSelect({
         freeoption:true, 
-        label:"Gruppentyp",
+        label:f("gruppentyp_id"),
         data:masterData.groupTypes, 
         cssid:"inputGruppentyp",
         selected:param
@@ -858,6 +960,11 @@ PersonView.prototype.personFunction = function (value, param) {
         selected:t.filter["filterAuth"]
       });      
     }
+    else if (value=="deletePerson") {
+      form.setLabel("Personen endg&uuml;ltig l&ouml;schen");
+      form.addHtml("Hiermit werden die markierten Personen gel&ouml;scht. Diese Aktion kann nicht wieder r&uuml;ckg&auml;ngig gemacht werden!");
+      form.addHidden({cssid:"inputId",value:"dummy"});
+    }
     else if (value=="archivePerson") {
       form.setLabel("Personen archivieren");
       form.addHtml("Hiermit werden die markierten Personen in das Archiv verschieben. Diese sind dann nur noch mit speziellen Rechten sichtbar!");
@@ -866,7 +973,7 @@ PersonView.prototype.personFunction = function (value, param) {
     }
     form.addCheckbox({cssid:"delChecked",label:'Markierung bei den '+ids.length+' Personen wieder entfernen?'});
     
-    var elem = t.showDialog("Mehrere hinzuf&uuml;gen...", form.render(), 500, 350, {
+    var elem = t.showDialog("Batch-Anpassungen", form.render(), 500, 350, {
       "Speichern": function() {
          var id=$("#inputId").val();
          var obj=new Object();
@@ -906,6 +1013,11 @@ PersonView.prototype.personFunction = function (value, param) {
                    churchInterface.jsendWrite(obj, null, false);
                  }
                }
+               else if (value=="deletePerson") {
+                 obj.id=ids[current_id];
+                 allPersons[ids[current_id]]=null;                                 
+                 churchInterface.jsendWrite(obj, null, false);                 
+               }
                elem.find("div.bar").width((100*(current_id+1)/ids.length)+'%');
                _progress(ids, current_id+1);
              },10);
@@ -921,7 +1033,7 @@ PersonView.prototype.personFunction = function (value, param) {
            $.each(allPersons, function(k,a) {allPersons[a.id].checked=null; });
          }
       },          
-      "Abbruch": function() {
+      "Abbrechen": function() {
         $(this).dialog("close");
       }
     });
@@ -937,15 +1049,15 @@ PersonView.prototype.renderListEntry = function(a) {
   var t=this;
   rows=new Array();
   
-  var _class="status_";
+  var _class="tooltip-person status_";
   if (masterData.status[a.status_id]!=null) {
     _class=_class+masterData.status[a.status_id].kuerzel.toLowerCase();
     if (masterData.status[a.status_id].mitglied_yn==1) _class=_class+" member";
   }  
   
-  rows.push("<td><a href=\"\" class=\""+_class+"\" tooltip=\""+a.id+"\" id=\"detail" + a.id + "\">" + a.vorname);
+  rows.push("<td><a href=\"\" class=\""+_class+"\" data-tooltip-id=\""+a.id+"\" id=\"detail" + a.id + "\">" + a.vorname);
   if (a.spitzname!="") rows.push(" ("+a.spitzname+")");
-  rows.push("</a><td><a href=\"\" class=\""+_class+"\" tooltip=\""+a.id+"\" id=\"detail" + a.id + "\">" + a.name+"</a>");
+  rows.push("</a><td><a href=\"\" class=\""+_class+"\" data-tooltip-id=\""+a.id+"\" id=\"detail" + a.id + "\">" + a.name+"</a>");
 
   // Nicht anzeigen bei Gruppenteilnahmenstatus
   if (masterData.settings.selectedGroupType!=-4) {
@@ -966,7 +1078,8 @@ PersonView.prototype.renderListEntry = function(a) {
     }
     rows[rows.length] = "<td class=\"hidden-phone\">";
   }
-  else if ((masterData.groups!=null) && (masterData.groups[t.filter["filterMeine Gruppen"]]!=null)) {    
+  else if ((masterData.groups!=null) && (masterData.groups[t.filter["filterMeine Gruppen"]]!=null)) {  
+    a.open=false;
     if ((masterData.groups[t.filter["filterMeine Gruppen"]].meetingList!=null)
          && (masterData.groups[t.filter["filterMeine Gruppen"]].meetingList!="get data")) {
       $.each(masterData.groups[t.filter["filterMeine Gruppen"]].meetingList, function(k,m) {
@@ -992,11 +1105,7 @@ PersonView.prototype.renderListEntry = function(a) {
     if (a.tags!=null) {
       var first=true;
       $.each(a.tags, function(k,a) {
-        if (first)
-          first=false;
-        else 
-          rows.push(", ");
-        rows.push(t.renderTag(a,false));
+        rows.push(t.renderTag(a,false)+"&nbsp;");
       });
     }
   } 
@@ -1033,18 +1142,19 @@ PersonView.prototype.renderListEntry = function(a) {
         arr.push(t.renderAuth(k));
       });
       if (arr.length>0)
-        rows.push('<b>Rechte durch Status: </b>'+arr.join(",")+'<br/>');
+        rows.push('<b>Rechte durch '+f("status_id")+': </b>'+arr.join(",")+'<br/>');
     }
   } 
+  // Show group membership
   else { 
     if (a.gruppe!=null) {
       var k=0;
       $.each(a.gruppe, function(j,b) {
         if ((masterData.groups[b.id]!=null) && 
-               (groupView.isGroupOfGroupType(b.id, masterData.settings.selectedGroupType)) && 
-                (groupView.isAllowedToSee(b.id))) {
+               (groupView.isGroupOfGroupType(b.id, masterData.settings.selectedGroupType))
+               && groupView.isAllowedToSeeName(b.id, a.id)) {
           if (k>0) rows[rows.length] = ", ";
-          
+          var link=groupView.isAllowedToSeeDetails(b.id);          
           var style="";
           //Leiter & Co-Leiter
           if ((b.leiter==1)||(b.leiter==2))
@@ -1052,13 +1162,15 @@ PersonView.prototype.renderListEntry = function(a) {
           // Supervisor
           else if (b.leiter==3)
           style="font-weight:bold;color:gray";
-          // Zu lšschen
+          // Zu lï¿½schen
           else if (b.leiter==-1)
             style="color:gray;text-decoration:line-through;";
           // Aufnahem beantragt
           else if (b.leiter==-2)
             style="color:#3a87ad;";
-          rows[rows.length] = "<a href=\"#"+b.id+"\" id=\"groupinfos"+a.id+"\" style=\""+style+"\">";
+          
+          if (link)
+            rows[rows.length] = "<a href=\"#"+b.id+"\" id=\"groupinfos"+a.id+"\" style=\""+style+"\">";
           
           rows[rows.length] = masterData.groups[b.id].bezeichnung.trim(25);
           
@@ -1091,7 +1203,8 @@ PersonView.prototype.renderListEntry = function(a) {
             }  
             rows.push("</small>");
           }
-          rows[rows.length] ="</a>";              
+          if (link)
+            rows[rows.length] ="</a>";              
           k++;
         }
       });
@@ -1113,11 +1226,13 @@ PersonView.prototype.renderListEntry = function(a) {
     if (a.access!=null) {
       bereich=bereich+'<font title="';
       $.each(a.access, function (i, b) {
-        bereich=bereich+masterData.dep[i].bezeichnung+" ";
+        if (masterData.dep[i]!=null)
+          bereich=bereich+masterData.dep[i].bezeichnung+" ";
       });
       bereich=bereich+'">';
       $.each(a.access, function (i, b) {
-        bereich=bereich+masterData.dep[i].kuerzel;
+        if (masterData.dep[i]!=null)
+          bereich=bereich+masterData.dep[i].kuerzel;
       });
       bereich=bereich+'</font>';
     }
@@ -1126,7 +1241,7 @@ PersonView.prototype.renderListEntry = function(a) {
   return rows.join("");
 };
 
-PersonView.prototype.makeFilterStatus = function(name, start_string, data) {
+PersonView.prototype.makeMasterDataMultiselectFilter = function(name, start_string, data) {
   var t=this;
   var filterName="filter"+name;
   if (data==null) data=masterData[name.toLowerCase()];
@@ -1134,7 +1249,7 @@ PersonView.prototype.makeFilterStatus = function(name, start_string, data) {
   t.filter[filterName]=new CC_MultiSelect(data, function(id, selected) {
     masterData.settings[filterName]=this.getSelectedAsArrayString();
     churchInterface.jsendWrite({func:"saveSetting", sub:filterName, val:masterData.settings[filterName]});
-    t.renderList();
+    churchInterface.getCurrentView().renderList();
   });
   t.filter[filterName].setSelectedAsArrayString(start_string);
   if (name=="Status") {
@@ -1144,32 +1259,35 @@ PersonView.prototype.makeFilterStatus = function(name, start_string, data) {
   }
 };
 
-PersonView.prototype.createMultiselect = function(name, data) {
+PersonView.prototype.createMultiselect = function(name, bezeichnung, data, refresh) {
   var t=this;
   var filterName="filter"+name;
+  if (refresh==null) refresh=false;
   
   if ((masterData.settings[filterName]=="") || (masterData.settings[filterName]==null))
     delete masterData.settings[filterName];
   if (t.filter[filterName]==null) {
-    t.makeFilterStatus(name, masterData.settings[filterName], data);
+    t.makeMasterDataMultiselectFilter(name, masterData.settings[filterName], data);
+    refresh=true;
   }
-  t.filter[filterName].render2Div(filterName, {label:name});    
+  if (refresh)
+    t.filter[filterName].render2Div(filterName, {label:bezeichnung});    
 };
 
 PersonView.prototype.getListHeader = function() {  
   var t = this;
+  t.currentTooltip=null;
   var g_id=t.filter["filterMeine Gruppen"];
-  // Diese Zeilen dienen beim ersten Aufruf Ÿber Direkteinstieg mit Id dafŸr, dass der Datenssatz
+  // Diese Zeilen dienen beim ersten Aufruf ï¿½ber Direkteinstieg mit Id dafï¿½r, dass der Datenssatz
   // angelegt wird, so dass sofort PersonDetails geladen werden.
   if ((this.filter["searchEntry"]!=null) && (this.filter["searchEntry"]>0)
       && (allPersons[this.filter["searchEntry"]]==null)) {
     allPersons[this.filter["searchEntry"]]=new Object();
     allPersons[this.filter["searchEntry"]].id=this.filter["searchEntry"];
   }
-
-  t.createMultiselect("Status", masterData.status);
-  t.createMultiselect("Station", masterData.station);
-  t.createMultiselect("Bereich", masterData.auth.dep);
+  t.createMultiselect("Status", f("status_id"), masterData.status);
+  t.createMultiselect("Station", f("station_id"), masterData.station);
+  t.createMultiselect("Bereich", f("bereich_id"), masterData.auth.dep);
   
   tableHeader='<th><a href="#" id="sortid">Nr.</a><th><a href="#" id="sortvorname">'
        +masterData.fields.f_address.fields.vorname.text
@@ -1203,29 +1321,31 @@ PersonView.prototype.getListHeader = function() {
       c.bezeichnung="Zugriffsrechte";
       b[-3]=(_createEntry(-3, "Zugriffsrechte"));
     }
-    if ((masterData.auth.viewgroupstats) || (t.filter['filterMeine Gruppen']!=null) && (groupView.isPersonLeaderOfGroup(masterData.user_pid, t.filter['filterMeine Gruppen']))) {
+    if ((masterData.auth.viewgroupstats) || 
+         (t.filter['filterMeine Gruppen']!=null && groupView.isPersonLeaderOfGroup(masterData.user_pid, t.filter['filterMeine Gruppen']))) {
       var c = new Object();
       c.id=-4;
-      c.bezeichnung="Gruppenteilnahme";
-      b[-4]=(_createEntry(-4, "Gruppenteilnahme"));
+      c.bezeichnung="Gruppentreffen";
+      b[-4]=(_createEntry(-4, "Gruppentreffen"));
     }
     tableHeader=tableHeader+"<th class=\"hidden-phone\">";
     tableHeader=tableHeader+form_renderSelect({data:b, controlgroup:false, cssid:"filterGruppentyp", type:"medium", selected:masterData.settings.selectedGroupType, func:function(a) {
-       // -2 = Tag-Ansicht
-        return ((a.id==-2) || (a.anzeigen_in_meinegruppen_teilnehmer_yn==1) || (masterData.auth.viewalldata));
+       // -2 = Tag-Ansicht   -4 = Gruppentreffen
+        return ((a.id==-2) || (a.id==-4) || (a.anzeigen_in_meinegruppen_teilnehmer_yn==1) || (masterData.auth.viewalldata));
       }
     });
   }
   
-  // -4 = Gruppenteilnahmepflege
+  // -4 = pflege
   if (masterData.settings.selectedGroupType==-4) {
-    if ((masterData.groups!=null) && (masterData.groups[g_id]!=null) && (masterData.groups[g_id].meetingList!=null)) {
+    if ((masterData.groups!=null) && (masterData.groups[g_id]!=null) && (masterData.groups[g_id].meetingList!=null)
+        && (masterData.groups[g_id].meetingList!="get data")) {
       $.each(masterData.groups[g_id].meetingList, function(k,m) {
         if ((m.datumvon!=null) && 
             (m.datumvon.toDateEn(false).getFullYear()==t.gruppenteilnehmerdatum.getFullYear()) &&
              (m.datumvon.toDateEn(false).getMonth()==t.gruppenteilnehmerdatum.getMonth())) {
           var d=m.datumvon.toDateEn(true);
-          tableHeader=tableHeader+'<th><span tooltip="-1" data-tooltiptype="gruppenteilnahme" data-gruppentreffen-id="'+m.id+'" data-group-id="'+g_id+'" data-datum="'+m.datumvon+'">'+d.getDate()+"."+(d.getMonth()+1)+".";
+          tableHeader=tableHeader+'<th><span class="tooltip-groupmeeting" data-gruppentreffen-id="'+m.id+'" data-tooltip-id="'+g_id+'" data-datum="'+m.datumvon+'">'+d.getDate()+"."+(d.getMonth()+1)+".";
           if (d.getHours()!=0)
             tableHeader=tableHeader+" <small>"+d.getHours()+":"+((d.getMinutes()+"").length==1?"0"+d.getMinutes():d.getMinutes())+"h</small><br>";
           tableHeader=tableHeader+form_renderImage(
@@ -1254,11 +1374,12 @@ PersonView.prototype.getListHeader = function() {
   }
   if (masterData.settings.selectedGroupType!=-4) {    
     if (masterData.auth.viewalldetails)
-      tableHeader=tableHeader+'<th class="hidden-phone"><a href="#" id="sortstatus_id" title="Status">S';
+      tableHeader=tableHeader+'<th class="hidden-phone"><a href="#" id="sortstatus_id" title="'+f("status_id")+'">'+f("status_id").substr(0,1);
     if (masterData.fields.f_category.fields.station_id!=null) 
-      tableHeader=tableHeader+'<th class="hidden-phone"><a href="#" id="sortstation_id" title="Station">S';
-    tableHeader=tableHeader+'<th class="hidden-phone"><font title="Bereich">B</font>';
+      tableHeader=tableHeader+'<th class="hidden-phone"><a href="#" id="sortstation_id" title="'+f("station_id")+'">'+f("station_id").substr(0,1);
+    tableHeader=tableHeader+'<th class="hidden-phone"><font title="'+f("bereich_id")+'">'+f("bereich_id").substr(0,1)+'</font>';
   }
+  
   return tableHeader;
 };
 
@@ -1295,7 +1416,8 @@ PersonView.prototype.messageReceiver = function(message, args) {
       this.msg_allDataLoaded(args[0]);
     }
     else if (message=="filterChanged") {
-      this.msg_filterChanged(args[0], args[1]);
+      if (churchInterface.getCurrentView()==personView)
+        this.msg_filterChanged(args[0], args[1]);
     }
     else if (message=="pollForNews") {
       var refresh=false;
@@ -1357,7 +1479,8 @@ PersonView.prototype.renderTodos = function() {
         if ((b.leiter==-2) && (groupView.isPersonLeaderOfGroup(masterData.user_pid, b.id))) {
           _gruppenantrag++;
         }
-        if ((b.leiter==-1) && (groupView.isPersonLeaderOfGroup(masterData.user_pid, b.id))) {
+        if ((b.leiter==-1) && 
+            ((groupView.isPersonSuperLeaderOfGroup(masterData.user_pid, b.id)))) {
           _gruppenloeschung++;
         }
       });
@@ -1409,14 +1532,21 @@ PersonView.prototype.renderFilter = function() {
   //form.setLabel();
   
   var ret=t.getMyGroupsSelector(true);
-  var img="";
-  if (masterData.auth.viewalldata) {
-    img="&nbsp; "+form_renderImage({
+  var img="&nbsp; ";
+  if (user_access("complex filter")) {
+    img=img+form_renderImage({
       label: "Aktuelle Filter als intelligente Gruppe speichern",
       cssid:"saveMyFilter", 
-      src: masterData.modulespath+'/images/save.png',
+      src:'save.png',
       htmlclass: "small"
     });
+    img=img+"&nbsp;"
+  }
+  if (groupView.isPersonLeaderOfGroup(masterData.user_pid, this.filter["filterMeine Gruppen"])) {
+    img=img+form_renderImage({label:"Gruppentreffen pflegen", cssid:"maintaingroupmeeting", src:"persons.png", width:20});  
+    img=img+"&nbsp;"
+  }
+  if (user_access("complex filter")) {
     if ((typeof this.filter["filterMeine Gruppen"]=="string") && (this.filter["filterMeine Gruppen"].indexOf("filter")==0)) {
       img=img+form_renderImage({
         label:"Intelligente Gruppe entfernen",
@@ -1438,53 +1568,20 @@ PersonView.prototype.renderFilter = function() {
     
   if (masterData.auth.viewalldetails) {
     form.addHtml('<div id="filterStatus"></div>');
-/*    form.addSelect({
-      label:"Status",
-      data:masterData.status,
-      cssid:"filterStatus",
-      type:"medium", freeoption:true,
-      func: function(d){return (masterData.settings.hideStatus==null)|| d.id!=masterData.settings.hideStatus;}
-    });*/
   }
   if (masterData.fields.f_category.fields.station_id!=null) {
     form.addHtml('<div id="filterStation"></div>');
-/*    form.addSelect({
-      label:"Station",
-      data:masterData.station,
-      cssid:"filterStation",
-      type:"medium", freeoption:true
-    });*/
   }
   form.addHtml('<div id="filterBereich"></div>');
-/*  form.addSelect({
-    label:"Bereich",
-    data:masterData.auth.dep,
-    cssid:"filterBereich",
-    type:"medium", freeoption:true
-  });*/
   form.addCheckbox({cssid:"searchChecked",label:"markierte"});  
   rows.push(form.render(true, "inline"));
   
   
   $("#cdb_filter").html(rows.join(""));
-  
-  if (this.filter["filterStatus"]!=null) {
-    if (typeof(this.filter["filterStatus"])=="string")
-      t.makeFilterStatus("Status", masterData.settings.filterStatus);      
-    this.filter["filterStatus"].render2Div("filterStatus", {label:"Status"});
-  }
-  if (this.filter["filterStaton"]!=null) {
-    if (typeof(this.filter["filterStation"])=="string")
-      t.makeFilterStatus("Station", masterData.settings.filterStation);      
-    this.filter["filterStation"].render2Div("filterStation", {label:"Station"});
-  }
-  if (this.filter["filterBereich"]!=null) {
-    if (typeof(this.filter["filterBereich"])=="string")
-      t.makeFilterStatus("Bereich", masterData.settings.filterBereich, masterData.auth.dep);      
-    this.filter["filterBereich"].render2Div("filterBereich", {label:"Bereich"});
-  }
 
-  
+  t.createMultiselect("Status", f("status_id"), masterData.status, true);
+  t.createMultiselect("Station", f("station_id"), masterData.station, true);
+  t.createMultiselect("Bereich", f("bereich_id"), masterData.auth.dep, true);
   
   // Setze die Werte auf die aktuellen Filter
   $.each(this.filter, function(k,a) {
@@ -1520,6 +1617,11 @@ PersonView.prototype.renderFilter = function() {
         t.renderList();
       }
     }
+    else if ($(this).attr("id")=="maintaingroupmeeting") {
+      masterData.settings.selectedGroupType=-4;
+      t.renderView();
+      return false;
+    }
     else if ($(this).attr("id")=="saveMyFilter") {
       var rows = new Array();
       rows.push('Bitte einen Namen f&uuml;r die intelligente Gruppe eingeben<br/>');
@@ -1534,9 +1636,9 @@ PersonView.prototype.renderFilter = function() {
             t.filter.filterStation=t.filter.filterStation.getSelectedAsArrayString();
             t.filter.filterBereich=t.filter.filterBereich.getSelectedAsArrayString();
             churchInterface.jsendWrite({func:"saveMyFilter", name:name, filter:t.filter}, null, false);
-            t.makeFilterStatus("Status", masterData.settings.filterStatus);
-            t.makeFilterStatus("Station", masterData.settings.filterStation);
-            t.makeFilterStatus("Bereich", masterData.settings.filterBereich, masterData.auth.dep);
+            t.makeMasterDataMultiselectFilter("Status", masterData.settings.filterStatus);
+            t.makeMasterDataMultiselectFilter("Station", masterData.settings.filterStation);
+            t.makeMasterDataMultiselectFilter("Bereich", masterData.settings.filterBereich, masterData.auth.dep);
             t.filter["filterMeine Gruppen"]="filter"+name;
             t.furtherFilterVisible=false;
             cdb_loadMasterData(function() {
@@ -1547,7 +1649,7 @@ PersonView.prototype.renderFilter = function() {
             });
             $(this).dialog("close");
           },
-          "Abbruch": function() {
+          "Abbrechen": function() {
             $(this).dialog("close");
           }
       });
@@ -1560,6 +1662,8 @@ PersonView.prototype.renderFilter = function() {
 
 function _checkGroupFilter(a, filter, z) {
   function _checkDate(z,k) {
+    if (k.d==null) return false;
+    
     if ((filter["filterGruppeInAb "+z]!=null) && (k.d.toDateEn()<filter["filterGruppeInAb "+z].toDateDe()))
       return false;
     if ((filter["filterGruppeInSeit "+z]!=null) && (k.d.toDateEn()>filter["filterGruppeInSeit "+z].toDateDe()))
@@ -1596,7 +1700,7 @@ function _checkGroupFilter(a, filter, z) {
         dabei=false;
         $.each(a.gruppe, function (b,k) {
           if ((masterData.groups[k.id]!=null) && (masterData.groups[k.id].distrikt_id==filter["filterDistrikt "+z])
-              && (((filter["filterTyp "+z]=="") || (filter["filterTyp "+z]==masterData.groups[k.id].gruppentyp_id))))
+              && (((filter["filterTyp "+z]=="") || (filter["filterTyp "+z]==null) || (filter["filterTyp "+z]==masterData.groups[k.id].gruppentyp_id))))
               dabei=_checkDate(z,k);
         });
         if (!dabei) return false;
@@ -1606,10 +1710,10 @@ function _checkGroupFilter(a, filter, z) {
       if (a.gruppe==null) return false;
       else {
         dabei=false;
-        // Hier ist kein Zusammenhang zwischen den anderen, d.h. hier mu§ ich auch noch suchen, 
+        // Hier ist kein Zusammenhang zwischen den anderen, d.h. hier muï¿½ ich auch noch suchen, 
         // wer z.B. Leiter bei dem Distrikt ist
         $.each(a.gruppe, function (b,k) {
-          if ((filter["filterTyp "+z]=="") || (filter["filterTyp "+z]==masterData.groups[k.id].gruppentyp_id))
+          if (filter["filterTyp "+z]=="" || filter["filterTyp "+z]==null || filter["filterTyp "+z]==masterData.groups[k.id].gruppentyp_id)
             if ((filter["filterGruppe "+z]==null) || (filter["filterGruppe "+z]==k.id))
               if ((filter["filterDistrikt "+z]==null) || (filter["filterDistrikt "+z]==masterData.groups[k.id].distrikt_id))
             if (k.leiter==filter["filterTeilnehmerstatus "+z]) dabei=_checkDate(z,k);
@@ -1625,8 +1729,8 @@ function _checkGroupFilter(a, filter, z) {
     if (a.gruppe!=null) {
       dabei=false;
       $.each(a.gruppe, function (b,k) {
-        // Erstmal mu§ der Typ stimmen
-        if (filter["filterTyp "+z]!="") {
+        // Erstmal muï¿½ der Typ stimmen
+        if (filter["filterTyp "+z]!="" && filter["filterGruppe "+z]==null) {
           if (masterData.groups[k.id].gruppentyp_id==filter["filterTyp "+z]) {
             // Wenn auch noch Leitertyp angegeben ist?
             if (filter["filterTeilnehmerstatus "+z]!=null) {
@@ -1660,10 +1764,6 @@ function _checkGroupFilter(a, filter, z) {
         else if (filter["filterTeilnehmerstatus "+z]!=null) {
           if (filter["filterTeilnehmerstatus "+z]==k.leiter) dabei=true;
         } 
-        // Nichts angegeben          
-        else {
-          dabei=true;
-        }
          
       });
       if (dabei) return false;
@@ -1685,13 +1785,13 @@ function _checkGroupFilter(a, filter, z) {
               || ((filter["filterGruppe "+z]==null) && ((filter["filterDistrikt "+z])==null) 
                  && (masterData.groups[og.gp_id]!=null) && (masterData.groups[og.gp_id].gruppentyp_id==filter["filterTyp "+z]))) {
             if ((filter["filterGruppeWarInVon "+z]==null) && (filter["filterGruppeWarInBis "+z]==null)) {
-              // Ohne Datum mu§ ich nur schauen, dass es einen Status -99 gibt, also dass er raus ist.
-              // bzw. ob der Teilnehmerstatus erfŸllt wurde, 
+              // Ohne Datum muï¿½ ich nur schauen, dass es einen Status -99 gibt, also dass er raus ist.
+              // bzw. ob der Teilnehmerstatus erfï¿½llt wurde, 
               if (((filter["filterTeilnehmerstatus "+z]==null) && (og.leiter==-99))
                 || (og.leiter==filter["filterTeilnehmerstatus "+z])) dabei=true;
             } 
             else {
-              // Wenn es ein Datum gibt, dann speichere ich mir die Daten fŸr jede Gruppen-ID in ein Array, s.u. 
+              // Wenn es ein Datum gibt, dann speichere ich mir die Daten fï¿½r jede Gruppen-ID in ein Array, s.u. 
               if (arr2[og.gp_id]==null) arr2[og.gp_id]=new Array();
               arr2[og.gp_id].push(og);                
             }              
@@ -1699,18 +1799,18 @@ function _checkGroupFilter(a, filter, z) {
           
         }                            
       });
-      // Wenn es Datumsfilterung gibt, dann mŸssen wir alle alten EintrŠge sortieren und interpretieren
+      // Wenn es Datumsfilterung gibt, dann mï¿½ssen wir alle alten Eintrï¿½ge sortieren und interpretieren
       if (filter["filterGruppeWarInBis "+z]!=null) {
         $.each(arr2, function(k,og) {
           // Sortiere nach Datum
           var b=churchcore_sortData(og,"d");
           var startdatum="";
           $.each(b, function(i,c) {            
-            // Entweder wird nicht nach TNStatus gefiltert, dann ist >0 wichtig, oder es mu§ eben vergleichen werden.
+            // Entweder wird nicht nach TNStatus gefiltert, dann ist >0 wichtig, oder es muï¿½ eben vergleichen werden.
             if (((filter["filterTeilnehmerstatus "+z]==null) && (c.leiter>=0))
                 || (filter["filterTeilnehmerstatus "+z]==c.leiter)) 
               startdatum=c.d;
-            // Wenn auch ein -99 da ist bzw. der TN-Status sich geŠndert hat, dann haben wir einen gŸltiges Bundle, also los!
+            // Wenn auch ein -99 da ist bzw. der TN-Status sich geï¿½ndert hat, dann haben wir einen gï¿½ltiges Bundle, also los!
             else if ((startdatum!="") && ((c.leiter==-99) || filter["filterTeilnehmerstatus "+z]!=null)) {
               if (((filter["filterGruppeWarInBis "+z]==null) || (startdatum.toDateEn()<=filter["filterGruppeWarInBis "+z].toDateDe()))
                  &&
@@ -1773,7 +1873,7 @@ PersonView.prototype.checkFilter = function(a) {
     return false;
 
   // Suchfeld
-  searchEntry=this.getFilter("searchEntry").toUpperCase();
+  var searchEntry=this.getFilter("searchEntry").toUpperCase();
   if (searchEntry!="") {
     
     // Split by " ", but not masked with a "
@@ -1806,7 +1906,7 @@ PersonView.prototype.checkFilter = function(a) {
         if (!dabei) res=false;
         return false;    
       }
-      // Wenn kein Tag, dann nun andere Mšglichkeiten testen
+      // Wenn kein Tag, dann nun andere Mï¿½glichkeiten testen
       else if ((a.name.toUpperCase().indexOf(search)<0) &&
                  (a.vorname.toUpperCase().indexOf(search)<0) &&
                  ((a.email==null) || (a.email.toUpperCase().indexOf(search)!=0)) &&
@@ -1872,12 +1972,17 @@ PersonView.prototype.checkFilter = function(a) {
     if (!dabei) return false;     
   }
 
+  if (this.filter["isMember"]!=null) {
+    if (masterData.status[a.status_id]!=null && (masterData.status[a.status_id].mitglied_yn==0))
+      return false;    
+  } 
+  
   if ((this.filter["filterStatus"]!=null) && (this.filter["filterStatus"].filter(a.status_id)))
     return false;
   if ((this.filter["filterStation"]!=null) && (this.filter["filterStation"].filter(a.station_id)))
     return false;
   
-  if ((filter["filterBereich"]!=null)) {
+  if ((filter["filterBereich"]!=null && filter["filterBereich"].isSomethingSelected())) {
     dabei=false;
     if (a.access!=null)
     $.each(a.access, function (b,k) {
@@ -1900,13 +2005,13 @@ PersonView.prototype.checkFilter = function(a) {
   if (filter["filterOr"]!=null)
     or=false;
 
-  while (filter["filterTyp "+z]!=null) {
+  while (filter["filterOn "+z]!=null) {
     var res=_checkGroupFilter(a, filter, z);
-    // UND-VerknŸpfung
+    // UND-Verknï¿½pfung
     if (filter["filterOr"]==null) {
       if (!res) return false;
     }  
-    // ODER-VerknŸpfung
+    // ODER-Verknï¿½pfung
     else if (res) or=true;   
     z=z+1;  
   }
@@ -1940,10 +2045,11 @@ PersonView.prototype.checkFilter = function(a) {
       if (a.geburtsdatum==null) 
         return false;
       else {
-        geb=new Date(a.geburtsdatum.substr(0,4),a.geburtsdatum.substr(5,2)-1,a.geburtsdatum.substr(8,2));      
-        if ((filter["ageFrom"]!=null) && (geb.getAgeInYears()<filter["ageFrom"]))
+        geb=a.geburtsdatum.toDateEn();      
+        if (geb.getAgeInYears().num==null) return false;
+        if ((filter["ageFrom"]!=null) && (geb.getAgeInYears().num<filter["ageFrom"]))
           return false;
-        if ((filter["ageTo"]!=null) && (geb.getAgeInYears()>filter["ageTo"]))
+        if ((filter["ageTo"]!=null) && (geb.getAgeInYears().num>filter["ageTo"]))
           return false;
       }   
     }   
@@ -1957,8 +2063,6 @@ PersonView.prototype.checkFilter = function(a) {
           flt.setFullYear(2000);
           src.setFullYear(2000);
         }  
-        console.log(flt);
-        console.log(src);
         if (flt>src) return false;
       } 
       else return false;
@@ -2126,16 +2230,16 @@ function _renderRelationList(id,del_link) {
         if (b.beziehungstyp_id==relType.id) {
           if (b.kind_id==id) {
             _text=_text+masterData.relationType[b.beziehungstyp_id].bez_vater;
-            // Checken ob er Ÿberhaupt die Person sehen darf, kann anderer Bereich sein.
+            // Checken ob er ï¿½berhaupt die Person sehen darf, kann anderer Bereich sein.
             if (allPersons[b.vater_id]!=null) {
-              _text=_text+': <a href="#" id="person_'+b.vater_id+'" '+(masterData.auth.viewalldata?'tooltip="'+b.vater_id+'">':'>')+allPersons[b.vater_id].vorname+" "+allPersons[b.vater_id].name+"</a>";
+              _text=_text+': <a href="#" class="tooltip-person" id="person_'+b.vater_id+'" '+(masterData.auth.viewalldata?'data-tooltip-id="'+b.vater_id+'">':'>')+allPersons[b.vater_id].vorname+" "+allPersons[b.vater_id].name+"</a>";
             } 
           }
           else { 
             _text=_text+masterData.relationType[b.beziehungstyp_id].bez_kind;
-            // Checken ob er Ÿberhaupt die Person sehen darf, kann anderer Bereich sein.
+            // Checken ob er ï¿½berhaupt die Person sehen darf, kann anderer Bereich sein.
             if (allPersons[b.kind_id]!=null) {
-              _text=_text+': <a href="#" id="person_'+b.kind_id+'" '+(masterData.auth.viewalldata?'tooltip="'+b.kind_id+'">':'>')+allPersons[b.kind_id].vorname+" "+allPersons[b.kind_id].name+"</a>";
+              _text=_text+': <a href="#" class="tooltip-person" id="person_'+b.kind_id+'" '+(masterData.auth.viewalldata?'data-tooltip-id="'+b.kind_id+'">':'>')+allPersons[b.kind_id].vorname+" "+allPersons[b.kind_id].name+"</a>";
             }
           }
           if ((masterData.auth.write) && (del_link)) 
@@ -2193,29 +2297,23 @@ PersonView.prototype.getGroupEntries = function (p_id, gt_id, func) {
   var res = new Array();  
   $.each(allPersons[p_id].gruppe, function(k,b) {
     if ((masterData.groups[b.id]!=null) && (masterData.groups[b.id].gruppentyp_id==gt_id) 
-        && (func(b)) 
-        && (   
-            ((masterData.auth.editgroups) && (masterData.groups[b.id].versteckt_yn==0)) 
-            || (groupView.isAllowedToSee(b.id))
-            || (groupView.isPersonLeaderOfGroup(masterData.user_pid, b.id))
-            || ((groupView.isGroupViewableForMembers(b.id)) && (t.isPersonLeaderOfPerson(masterData.user_pid, p_id))))
-           ) 
+        && (func(b)) && (groupView.isAllowedToSeeName(b.id, p_id)))
       {
       b.show=true;
       res.push(b);
     }
   });
   
-  // Sortiere nach Datum rŸckwŠrts
+  // Sortiere nach Datum rï¿½ckwï¿½rts
   res.sort(function(a,b){if (a.d>b.d) return -1; else return 1;});
 
-  // Nehem soviele heraus, bis 4 Ÿbrig bleiben
+  // Nehem soviele heraus, bis 4 ï¿½brig bleiben
   if (t.showGroupDetailsId!=gt_id) {    
     var count=res.length;
     var d=new Date(); d.addDays(-1*masterData.groupnotchoosable);
     var i=res.length;
     
-    // Erst die Filtern, bei denen die Gruppe ein Abschlu§datum hat
+    // Erst die Filtern, bei denen die Gruppe ein Abschluï¿½datum hat
     while ((i>0) && (count>4)) {
       i=i-1;
       if ((masterData.groups[res[i].id].abschlussdatum!=null) && (masterData.groups[res[i].id].abschlussdatum.toDateEn()<d)) {
@@ -2254,7 +2352,7 @@ PersonView.prototype.getGroupEntries = function (p_id, gt_id, func) {
       var grptxt=masterData.groups[b.id].bezeichnung;
       if (b.leiter==-2) grptxt=grptxt+"?";
       
-      if (groupView.isAllowedToSee(b.id))
+      if (groupView.isAllowedToSeeDetails(b.id))
         _text=_text+'<small><a href="#" title="'+_title+'" style="'+_style+'" id="grp_'+b.id+'">'+grptxt+"</a>";
       else if (b.leiter==-1) 
         _text=_text+'<small style="text-decoration:line-through;">'+grptxt;
@@ -2300,7 +2398,7 @@ PersonView.prototype.getGroupEntries = function (p_id, gt_id, func) {
 };
 
 /**
- * Ist es Ÿberhaupt eine Followup-Gruppe?
+ * Ist es ï¿½berhaupt eine Followup-Gruppe?
  * group=Person.group
  */
 function _isFollowUpGroup(group) {
@@ -2333,7 +2431,7 @@ function _getNextFollowupCountNo(followup_typ_id, followup_count_no) {
 /**
  * 
  * @param group - Ein Gruppeneintrag von allPerson.groups[]
- * @return null oder Anzahl Tage von heute bis zum FollowUp, negativ wenn schon ŸberfŠllig
+ * @return null oder Anzahl Tage von heute bis zum FollowUp, negativ wenn schon ï¿½berfï¿½llig
  */
 function _getPersonGroupFollowupDiffDays(group) {
   if (!_isFollowUpGroup(group))
@@ -2349,6 +2447,21 @@ function _getPersonGroupFollowupDiffDays(group) {
   }
 }
 
+PersonView.prototype.invitePerson = function(a) {
+  if (a.email=="")
+    alert("Ohne E-Mail-Adresse kann die Person nicht eingeladen werden!");
+  else if (confirm("Wirklich "+a.vorname+" "+a.name+" einladen? Die Person bekommt eine E-Mail mit einem Link, wo sie dann das Passwort erstellen kann.")) {
+    churchInterface.jsendWrite({func:"sendInvitationMail", id:a.id}, function(ok) {
+      if (ok) {
+        alert("Einladung wurde gesendet.");
+        a.einladung=1;
+        t.renderDetails(a.id);
+      }
+      else alert("Fehler: "+res);
+    });      
+  }
+};
+
 PersonView.prototype.renderAuthDialog = function (id) {
   var t=this;
   var _text="";
@@ -2356,7 +2469,7 @@ PersonView.prototype.renderAuthDialog = function (id) {
   if (a.active_yn==1) {
     _text=_text+"<p>"+t.renderImage("schluessel")+'&nbsp;<a href="" title="Berechtigung editieren" id="personAuth">Berechtigungen anpassen</a><small> - Personen k&ouml;nen hier direkte Rechte zugewiesen werden</small>';
     _text=_text+"<p>"+t.renderImage("person_simulate")+"&nbsp;<a href=\"#\" title=\"Person simulieren\" id=\"simulatePerson\">"+"Person simulieren</a><small> - Berechtigung der Person testen</small>";
-    _text=_text+"<p>"+t.renderImage("netzwerk")+"&nbsp;<a href=\"#\" title=\"Person per E-Mail einladen\" id=\"invitatePerson\">Person einladen</a><small> - Person erh&auml;lt per E-Mail einen Anmeldelink.</small>";
+    _text=_text+"<p>"+t.renderImage("person")+"&nbsp;<a href=\"#\" title=\"Person per E-Mail einladen\" id=\"invitatePerson\">Person einladen</a><small> - Person erh&auml;lt per E-Mail einen Anmeldelink.</small>";
     _text=_text+"<p>"+t.renderImage("trashbox")+"&nbsp;<a href=\"#\" title=\"Zugang sperren\" id=\"deactivatePerson\">Zugang sperren</a><small> - Berechtigungen entfernen und der Person den Zugang sperren.</small>";
     _text=_text+"<p>"+t.renderImage("attention")+"&nbsp;<a href=\"#\" title=\"Passwort zur&uuml;cksetzen\" id=\"setPassword\">Passwort zur&uuml;cksetzen</a><small> - Der Person ein Passwort setzen.</small>";
   }
@@ -2374,7 +2487,7 @@ PersonView.prototype.renderAuthDialog = function (id) {
     _text=_text+"Person wurde noch nie eingeladen";
 
   var elem = t.showDialog("Anpassung der Berechtigungen", _text, 500, 380, {
-      "Schliessen": function() {
+      "SchlieÃŸen": function() {
         $(this).dialog("close");
       }
   });
@@ -2385,18 +2498,7 @@ PersonView.prototype.renderAuthDialog = function (id) {
       return false;
     }
     else if ($(this).attr("id")=="invitatePerson") {
-      if (a.email=="")
-        alert("Ohne E-Mail-Adresse kann die Person nicht eingeladen werden!");
-      else if (confirm("Wirklich "+a.vorname+" "+a.name+" einladen? Die Person bekommt eine E-Mail mit einem Link, wo sie dann das Passwort erstellen kann.")) {
-        churchInterface.jsendWrite({func:"sendInvitationMail", id:a.id}, function(ok) {
-          if (ok) {
-            alert("Einladung wurde gesendet.");
-            a.einladung=1;
-            t.renderDetails(a.id);
-          }
-          else alert("Fehler: "+res);
-        });      
-      }
+      t.invitePerson(a);
       return false;
     }
     else if ($(this).attr("id")=="personAuth") {
@@ -2443,7 +2545,7 @@ PersonView.prototype.renderAuthDialog = function (id) {
           });                
           $(this).dialog("close");
         },
-        "Abbruch": function() {
+        "Abbrechen": function() {
           $(this).dialog("close");
         }
       });      
@@ -2464,6 +2566,7 @@ PersonView.prototype.renderDetails = function (id) {
   // Feststellen, ob aktueller User ein Leiter einer Gruppe ist, in der die Person ist. 
   // => Dann hat der User Schreibrechte!
   personLeader=false;
+  personSuperLeader=false;
   if ((allPersons[id].gruppe!=null) && (masterData.user_pid!=null) && (allPersons[masterData.user_pid].gruppe!=null)) {
     $.each(allPersons[masterData.user_pid].gruppe, function (b,k) {    
       if ((k.leiter>=1) && (k.leiter<=2)) {
@@ -2478,7 +2581,16 @@ PersonView.prototype.renderDetails = function (id) {
         });
       }
     });
-  }          
+  }
+  // Check if I am SuperLeader (Distrikt- or Gruppentypleiter), for acting as a leader
+  if (allPersons[id].gruppe!=null) {
+    $.each(allPersons[id].gruppe, function (b,k) {    
+      if (groupView.isPersonSuperLeaderOfGroup(masterData.user_pid, k.id)) {
+        personLeader=true;
+        personSuperLeader=true;        
+      }
+    });    
+  }
 
   var rows = new Array();
   rows.push('<div id="detail" class="detail-view-person">');
@@ -2534,16 +2646,20 @@ PersonView.prototype.renderDetails = function (id) {
       var _text ="<div class=\"left-column-person span4\">";
       
       if ((masterData.auth.write) || (personLeader))
-        _text=_text+"<p><a id=\"f_image\" href=\"\">"+this.renderPersonImage(a.id)+"</a>";
+        _text=_text+"<p><a id=\"f_image\" href=\"\">"+form_renderPersonImage(allPersons[a.id].imageurl)+"</a>";
       else
-        _text=_text+"<p>"+this.renderPersonImage(a.id);
+        _text=_text+"<p>"+form_renderPersonImage(allPersons[a.id].imageurl);
       
       _text=_text+"<p style='line-height:100%;color:black'>";
-      if (a.geburtsdatum!=null) {
-        geb=new Date(a.geburtsdatum.substr(0,4),a.geburtsdatum.substr(5,2)-1,a.geburtsdatum.substr(8,2));      
-        _text=_text+a.vorname+" "+a.name+" ("+geb.getAgeInYears()+") &nbsp; ";
-      } else
-        _text=_text+a.vorname+" "+a.name+" &nbsp; ";
+      _text=_text+a.vorname+" "+a.name;
+
+      if (a.geburtsdatum!=null && a.geburtsdatum.toDateEn().getAgeInYears().num!=null) {
+        var age=a.geburtsdatum.toDateEn().getAgeInYears().txt;
+        if (age!=null) {
+          _text=_text+" ("+age+")";        
+        }
+      }
+      _text=_text+" &nbsp; ";
       
       if (a.email!="")
         _text=_text+"<a href=\"#\" title=\"E-Mail an Person schreiben\" id=\"mailPerson\">" +t.renderImage("email")+"</a>&nbsp;";
@@ -2569,10 +2685,18 @@ PersonView.prototype.renderDetails = function (id) {
       
       // Mittlere Spalte
       _text=_text+"<div id=\"detailAddress\" class=\"span4 middle-column-person\">";
-      if ((masterData.auth.viewaddress) || (masterData.auth.viewalldetails) || (personLeader))
-        _text=_text + t.renderFields(masterData.fields.f_address, a, masterData.auth.write || personLeader, ["ViewAllDetailsOrPersonLeader"]);
-      else
-        _text=_text + t.renderFields(masterData.fields.f_address, a, masterData.auth.write || personLeader, null);
+      
+      var autharr=new Array();
+      if (masterData.auth.admin) 
+        autharr.push("admin");
+      if (masterData.auth.viewalldetails) 
+        autharr.push("viewalldetails");
+      if (personLeader)
+        autharr.push("leader");
+      if (personSuperLeader)
+        autharr.push("superleader");
+      
+      _text=_text + t.renderFields(masterData.fields.f_address, a, masterData.auth.write || personLeader, autharr);
       
       if (masterData.auth.viewalldetails)
         _text=_text + t.renderFields(masterData.fields.f_church, a, masterData.auth.write);
@@ -2583,7 +2707,7 @@ PersonView.prototype.renderDetails = function (id) {
       
       if (masterData.auth.viewalldetails)
         _text=_text + t.renderFields(masterData.fields.f_category, a, masterData.auth.write);
-      // Die kein Recht auf alle Daten haben mŸssen auch nur wissen, ob Mitglied oder nicht. Nicht die einzelnen Statis.
+      // Die kein Recht auf alle Daten haben mï¿½ssen auch nur wissen, ob Mitglied oder nicht. Nicht die einzelnen Statis.
       else {
         _text=_text+"<p><b><i>Kategorie</i></b><br/><small>Mitglied: ";
         if (masterData.status[a.status_id].mitglied_yn==1)
@@ -2598,33 +2722,49 @@ PersonView.prototype.renderDetails = function (id) {
         _text=_text+"<h4>Berechtigungen&nbsp;&nbsp;";
         _text=_text+'<a href="#" id="auth">'+t.renderImage("options")+'</a></h4>';
         _text=_text+'<p style="line-height:100%;color:black"><small>';
-  
+      }
+      else if (personSuperLeader) {
+        _text=_text+"<br/><br/><h4>Berechtigungen&nbsp;&nbsp;</h4>";
+        _text=_text+'<p style="line-height:100%;color:black"><small>';          
+      }
+      else { 
+        _text=_text+'<p><small>';
+      }
+      
+      if (masterData.auth.adminpersons ||Â personSuperLeader) {  
         var txt="";
         if (a.active_yn==0)
           _text=_text+"<font color=red>Zugang f&uuml;r Person gesperrt!</font>";
         else if (a.lastlogin!=null)
           txt="Zuletzt online am "+a.lastlogin.toDateEn(true).toStringDe(true);
         else if (a.einladung==1)
-          txt="Bereits eingeladen";
+          txt=a.vorname+' ist bereits eingeladen. <a href="#" style="color:black" id="invitatePerson">Erneut einladen</a>';
         else 
-          txt="Nicht eingeladen";
+          txt='<a href="#" style="color:black" id="invitatePerson">'+form_renderImage({src:"person.png", width:18})+' Zu '+masterData.site_name+' einladen</a>';
         _text=_text+txt+"</small><br/>";
-        
+      }
+      if (masterData.auth.adminpersons) {
         if (a.districts!=null) {
-          _text=_text+"<p><small><b>Zugeordnete Distrikte:</b>";
+          _text=_text+"<p><small><b>Zugeordnet in "+f("distrikt_id")+":</b>";
           $.each(a.districts, function(k,b) {
             _text=_text+"<br/>- "+masterData.districts[b.distrikt_id].bezeichnung+"";
           });
           _text=_text+"</small>";
         }      
         if (a.gruppentypen!=null) {
-          _text=_text+"<p><small><b>Zugeordnete Gruppentypen:</b>";
+          _text=_text+"<p><small><b>Zugeordnet in "+f("gruppentyp_id")+":</b>";
           $.each(a.gruppentypen, function(k,b) {
             _text=_text+"<br/>- "+masterData.groupTypes[b.gruppentyp_id].bezeichnung+"";
           });
-          _text=_text+"</small>";
-        }      
-      }   
+        }
+        if (a.auth!=null) {
+          var auth=t.getAuthAsArray(a.auth).join(", ");
+          if (auth!="") {
+            _text=_text+"<p><small><b>Manuelle Berechtigungen:</b><br/>"+auth.trim(100);
+          }
+        }
+      }
+      _text=_text+"</small>";
       _text=_text+"</div>";
       
       
@@ -2632,8 +2772,10 @@ PersonView.prototype.renderDetails = function (id) {
   
       // Rechte Spalte
       _text=_text+"<div class=\"right-column-person span4\">";
-  
-      _text=_text + t.renderTags(a.tags, masterData.auth.write || personLeader, id);
+      
+      if (masterData.auth.viewtags || personLeader) {
+        _text=_text + t.renderTags(a.tags, masterData.auth.write || personLeader, id);
+      }
   
       // Kommentare
       if (masterData.auth.comment_viewer!=null) {
@@ -2652,7 +2794,7 @@ PersonView.prototype.renderDetails = function (id) {
               _comments=_comments+'<tr>'+'<td class="'+_class+'"><p><small>'+_text;
               _comments=_comments+"<br/><font color=\"grey\"><i>(";
               if (allPersons[b.person_id]!=null)
-                _comments=_comments+'<a href="#" id="person_'+b.person_id+'" tooltip="'+b.person_id+'">'+allPersons[b.person_id].vorname+" "+allPersons[b.person_id].name+'</a>';
+                _comments=_comments+'<a href="#" id="person_'+b.person_id+'" class="tooltip-person" data-tooltip-id="'+b.person_id+'">'+allPersons[b.person_id].vorname+" "+allPersons[b.person_id].name+'</a>';
               else   
                 _comments=_comments+"["+b.person_id+"]";
               _comments=_comments+"/"+masterData.comment_viewer[b.comment_viewer_id].bezeichnung+" "+b.datum.toDateEn().toStringDe()+")</i></font></small>";
@@ -2703,7 +2845,7 @@ PersonView.prototype.renderDetails = function (id) {
             }
   
   
-            // Erst mal alle auf Unused setzen, damit ich hinterher wei§, welche Archiv-Gruppe noch nicht gezeigt wurde
+            // Erst mal alle auf Unused setzen, damit ich hinterher weiï¿½, welche Archiv-Gruppe noch nicht gezeigt wurde
             if ((allPersons[id].oldGroups!=null) && (t.showGroupDetailsId==a.id) && (t.showGroupDetailsWithHistory)) {
               $.each(allPersons[id].oldGroups,function(y,d) {
                 d.used=false;
@@ -2740,7 +2882,7 @@ PersonView.prototype.renderDetails = function (id) {
       _text=_text+"<a href=\"#\" id=\"vcard\">VCard export>></a></div><!--bottom_links-->";                
       _text=_text+"<div style=\"float:right\">";
     
-      _text=_text+"<small><i>Bereiche: </i>";
+      _text=_text+"<small><i>"+f("bereich_id")+": </i>";
         $.each(masterData.auth.dep, function(k,a) {
           if ((allPersons[id].access!=null) && (allPersons[id].access[a.id]==a.id)) {
             _text=_text+" "+a.bezeichnung+"&nbsp;";         
@@ -2753,9 +2895,9 @@ PersonView.prototype.renderDetails = function (id) {
         if ((masterData.auth["push/pull archive"]) && (a.archiv_yn==0))
           _text=_text+"&nbsp;<a href=\"#\" title=\"Person archivieren\" id=\"archivePerson\">"+form_renderImage({src:"archive.png", width:18})+"</a>";
         if ((masterData.auth["push/pull archive"]) && (a.archiv_yn==1))
-          _text=_text+"&nbsp;<a href=\"#\" title=\"Person zur&uuml;ckeholen\" id=\"undoArchivePerson\">"+form_renderImage({src:"undoarchive.png", width:18})+"</a>";
+          _text=_text+"&nbsp;<a href=\"#\" title=\"Person zur&uuml;ckholen\" id=\"undoArchivePerson\">"+form_renderImage({src:"undoarchive.png", width:18})+"</a>";
         if (masterData.auth.admin || masterData.auth.adminpersons)
-          _text=_text+"&nbsp;<a href=\"#\" title=\"Person entfernen\" id=\"delete_user\">"+form_renderImage({src:"trashbox.png", width:18})+"</a>&nbsp;&nbsp;";
+          _text=_text+"&nbsp;<a href=\"#\" title=\"Person entfernen\" id=\"deletePerson\">"+form_renderImage({src:"trashbox.png", width:18})+"</a>&nbsp;&nbsp;";
       }
       _text=_text+'&nbsp;<a href="#" id="person_'+a.id+'">#'+a.id+"</a></i></small>&nbsp;&nbsp;";
 
@@ -2811,8 +2953,8 @@ PersonView.prototype.renderDetails = function (id) {
   });
   
   $("td[id=detailTD"+id+"] a").click(function() {
-    // Lšsche den Tooltip, falls es ihn gibt
-    t.clearTooltip(true);
+    // Lï¿½sche den Tooltip, falls es ihn gibt
+    clearTooltip();
     if (($(this).parents("td").attr("id")!=null) && ($(this).parents("td").attr("id")!=""))
       var id=$(this).parents("td").attr("id").substring(8,100);
     else 
@@ -2947,7 +3089,7 @@ PersonView.prototype.renderDetails = function (id) {
       });
     }
     else if (fieldname.indexOf("f_followup_")==0) {
-      // FollowUp ErgŠnzen, falls die aktuelle Person hier ein FollowUp durchfŸhren soll
+      // FollowUp Ergï¿½nzen, falls die aktuelle Person hier ein FollowUp durchfï¿½hren soll
       g_id=fieldname.substring(11,99);
       var rows=new Array();
       b=allPersons[id].gruppe[g_id];
@@ -3010,7 +3152,7 @@ PersonView.prototype.renderDetails = function (id) {
       rows.push("</div>");
       
       rows[rows.length]='<p><input type="button" class="btn btn-royal" id="idFollowupSave_'+g_id+'_'+id+'" value="Speichern"/>&nbsp;';
-      rows[rows.length]='<input type="button" class="btn btn-alert" id="idFollowupAbort_'+g_id+'_'+id+'" value="FollowUp abbrechen"/>&nbsp;&nbsp;';
+      rows[rows.length]='<input type="button" class="btn btn-alert" id="idFollowupAbort_'+g_id+'_'+id+'" value="FollowUp l&ouml;schen"/>&nbsp;&nbsp;';
       rows[rows.length]='<a href="#" id="idFollowupCancel_'+g_id+'_'+id+'">Sp&auml;ter durchf&uuml;hren</a>';
 
       rows.push('</div>');
@@ -3031,11 +3173,11 @@ PersonView.prototype.renderDetails = function (id) {
         if ((allPersons[id].gruppe[g_id].followup_erfolglos_zurueck_gruppen_id!=null) 
             && (masterData.groups[allPersons[id].gruppe[g_id].followup_erfolglos_zurueck_gruppen_id])) {
           back_id=allPersons[id].gruppe[g_id].followup_erfolglos_zurueck_gruppen_id;
-          txt="Das FollowUp bei "+a.vorname+" "+a.name+" wirklich abbrechen? Das FollowUp geht zurueck an Gruppe '"+
+          txt="Das FollowUp bei "+a.vorname+" "+a.name+" wirklich entfernen? Das FollowUp geht zurueck an Gruppe '"+
              masterData.groups[back_id].bezeichnung+"'!";
         }
         else
-          txt="Das FollowUp bei "+a.vorname+" "+a.name+" wirklich abbrechen? Achtung, um das FollowUp wieder zu starten, muss die Person wieder der entsprechend Gruppen zugeordnet werden!";          
+          txt="Das FollowUp bei "+a.vorname+" "+a.name+" wirklich entfernen? Achtung, um das FollowUp wieder zu starten, muss die Person wieder der entsprechend Gruppen zugeordnet werden!";          
           
         if (confirm(txt)) {
           churchInterface.jsendWrite({func:"delPersonGroupRelation",id:id,g_id:g_id});
@@ -3128,12 +3270,7 @@ PersonView.prototype.renderDetails = function (id) {
       t.renderEditEntry(id, fieldname);
     return false;
   });
-  $("#cdb_content a[tooltip]").mouseover(function(c) {
-      t.prepareTooltip($(this));
-  });
-  $("#cdb_content a[tooltip]").mouseout(function(c) {
-     t.clearTooltip();
-  });
+  t.addPersonsTooltip($("#detailTD"+id));
 };
 
 
@@ -3165,7 +3302,7 @@ PersonView.prototype.getAvailableAddGroupsForGrouptype = function(gt_id) {
 PersonView.prototype.editPersonAuth = function (id) {
   var t=this;
   this.editDomainAuth(id, allPersons[id].auth, "person", function(id) {
-    // Hole mir neue Details fŸr die Person mit der Auth-infos
+    // Hole mir neue Details fï¿½r die Person mit der Auth-infos
     churchInterface.jsendRead({func:"getPersonDetails", id:id}, function(ok, json) {
       allPersons[json.id]=cdb_mapJsonDetails(json, allPersons[json.id]);
       // Rendere die View neu, da auch die Tablle Zugriffsrechte anzeigen kann
@@ -3193,7 +3330,7 @@ PersonView.prototype.delPersonFromGroup = function (id, g_id, withoutConfirmatio
     });
     if (!leiter_check) {
       alert("Bei "+a.vorname+" "+a.name+" nicht machbar, da es sich um den einzigen Leiter dieser Gruppe handelt. " +
-          "Gruppen des Gruppentyps '"+masterData.groupTypes[masterData.groups[g_id].gruppentyp_id].bezeichnung+
+          "Gruppen von "+f("gruppentyp_id")+" "+masterData.groupTypes[masterData.groups[g_id].gruppentyp_id].bezeichnung+
           "' muessen mindestens einen Leiter haben.");
       return false;
     } 
@@ -3211,7 +3348,7 @@ PersonView.prototype.delPersonFromGroup = function (id, g_id, withoutConfirmatio
       });
     }
   } 
-  // Nicht erlaubt, d.h. es handelt sich um einen KG-Leiter, der nur auf "Zu Lšschen" setzen darf
+  // Nicht erlaubt, d.h. es handelt sich um einen KG-Leiter, der nur auf "Zu Lï¿½schen" setzen darf
   else {
     var form = new CC_Form("Person in der Gruppe als zu l&ouml;schen markieren");
     form.addCaption({label:'Person', text:a.vorname+" "+a.name});
@@ -3229,7 +3366,7 @@ PersonView.prototype.delPersonFromGroup = function (id, g_id, withoutConfirmatio
         });                      
         $(this).dialog("close");            
       },          
-      "Abbruch": function() {
+      "Abbrechen": function() {
         $(this).dialog("close");
       }
     });
@@ -3274,10 +3411,17 @@ PersonView.prototype.renderEditEntry = function(id, fieldname, preselect) {
   buttonText="Speichern";
   // Alle bekannten Elemente als Input rendern      
   if (masterData.fields[fieldname]!=null) {
-    if ((masterData.auth.viewalldetails) || (t.isPersonLeaderOfPerson(masterData.user_pid, id)))
-      rows.push(this.getStandardFieldsAsSelect(fieldname, a, ["ViewAllDetailsOrPersonLeader"]));
-    else  
-      rows.push(this.getStandardFieldsAsSelect(fieldname, a, []));
+    
+    var autharr=new Array();
+    if (masterData.auth.viewalldetails) 
+      autharr.push("viewalldetails");
+    if (t.isPersonLeaderOfPerson(masterData.user_pid, id))
+      autharr.push("leader");
+    if (t.isPersonSuperLeaderOfPerson(masterData.user_pid, id))
+      autharr.push("superleader");
+    
+    rows.push(this.getStandardFieldsAsSelect(fieldname, a, autharr));
+    
     if (fieldname=="f_category") height=300;
   }   
   else if (fieldname=="f_note") {
@@ -3306,12 +3450,12 @@ PersonView.prototype.renderEditEntry = function(id, fieldname, preselect) {
       diff_date.addDays(-1*masterData.groupnotchoosable);
     
       $.each(churchcore_sortData(masterData.groups, "bezeichnung"), function(k,a) {
-        // Es sollen nur Gruppen auswŠhlbar sein, deren Abschlu§datum zu alt ist
+        // Es sollen nur Gruppen auswï¿½hlbar sein, deren Abschluï¿½datum zu alt ist
         if ((a.gruppentyp_id==gt_id) 
             && (a.valid_yn==1) 
             && ((a.abschlussdatum==null) || (a.abschlussdatum.toDateEn()>diff_date))) {
-            // Wenn ich die Gruppe sehen darf, darf ich sie auch zuordnen. Und natŸrlich auf editgroups
-            if ((groupView.isAllowedToSee(a.id)) || ((masterData.auth.editgroups) && (a.versteckt_yn==0)) ) {
+            // Wenn ich die Gruppe sehen darf, darf ich sie auch zuordnen. Und natï¿½rlich auf editgroups
+            if ((groupView.isAllowedToSeeDetails(a.id)) || ((masterData.auth.editgroups) && (a.versteckt_yn==0)) ) {
             // Es sollen nur Gruppen angezeigt werden, in denen die Person noch nicht ist.
             var dabei=false;
             if (allPersons[id].gruppe!=null) {
@@ -3362,7 +3506,7 @@ PersonView.prototype.renderEditEntry = function(id, fieldname, preselect) {
   }
   else if (fieldname=="f_bereich") {      
     width=350; height=300;
-    rows.push("<h3>Anpassung der Bereiche</h3><p><small>Eine Person muss in mindestens einem Bereich sein</small>");
+    rows.push("<h3>Anpassung von "+f("bereich_id")+"</h3><p><small>Eine Person muss in mindestens einem zugeordnet sein</small>");
     $.each(masterData.auth.dep, function(k,a) {
       if (allPersons[id].access[a.id]==a.id) {
         rows[rows.length]="<p><input type=\"checkbox\" id=\"InputBereich"+a.id+"\"/ checked=\"true\"/>"; 
@@ -3374,14 +3518,15 @@ PersonView.prototype.renderEditEntry = function(id, fieldname, preselect) {
   }
   else if (fieldname=="f_image") {
     width=300; height=300;
-    rows[rows.length]="<p><div id=\"upload_button\">Nochmal bitte...</div><p><div id=\"image_uploaded\"/>";
+    rows[rows.length]="<p>Bitte nun ein Bild im Format JPG ausw&auml;hlen.<div id=\"upload_button\">Nochmal bitte...</div><p><div id=\"image_uploaded\"/>";
+    rows.push('<p><small>max. '+Math.round(masterData.max_uploadfile_size_kb/1024)+'MB</small>');
   }
   else if (fieldname.indexOf("del_note")==0) {
     width=300; height=300;
     rows[rows.length]="Soll der Kommentar wirklich entfernt werden?";
     buttonText="Entfernen";
   } 
-  else if (fieldname.indexOf("delete_user")==0) {
+  else if (fieldname.indexOf("deletePerson")==0) {
     width=300; height=300;
     rows[rows.length]="Soll die Person wirklich gel&ouml;scht werden? Achtung, dieses L&ouml;schen ist endg&uuml;ltig und entfernt auch alle Gruppenbeziehungen etc.!";
   }
@@ -3418,16 +3563,20 @@ PersonView.prototype.renderEditEntry = function(id, fieldname, preselect) {
     t.smsPerson([id]);
     return false;
   }
+  else if (fieldname=="invitatePerson") {
+    t.invitePerson(allPersons[id]);
+    return false;
+  }
   else
     alert("Sorry, "+fieldname+" ist noch nicht fertig.");
 
   rows[rows.length]='<input type="hidden" id="fields" value="'+fieldname+'"/><br/>';
   
-  var elem = this.showDialog("Ver&auml;nderung des Datensatzes", rows.join(""), width, height, {
+  var elem = this.showDialog("VerÃ¤nderung des Datensatzes", rows.join(""), width, height, {
     "Speichern": function() {
       t._saveEditEntryData(id, fieldname, renderViewNecessary, $(this));
     },
-    "Abbruch": function() {
+    "Abbrechen": function() {
       $(this).dialog("close");
     }
   });
@@ -3468,7 +3617,7 @@ PersonView.prototype.renderEditEntry = function(id, fieldname, preselect) {
       var form=new CC_Form(masterData.groupTypes[gt_id].bezeichnung+" erstellen");
       form.addInput({label:"Name der Gruppe", cssid:"name"});
       form.addHidden({cssid:"Inputf_grouptype", value:gt_id});
-      form.addSelect({label:"Distrikt", data:masterData.districts, cssid:"Inputf_district"});
+      form.addSelect({label:f("distrikt_id"), data:masterData.districts, cssid:"Inputf_district"});
       elem.dialog("close");
       var elem2=form_showDialog("Gruppe erstellen", form.render(null, "vertical"), 300, 350, {
         "Speichern": function() {
@@ -3487,10 +3636,13 @@ PersonView.prototype.renderEditEntry = function(id, fieldname, preselect) {
           t.renderList();
           $(this).dialog("close");
         },
-        "Abbruch": function() {
+        "Abbrechen": function() {
           $(this).dialog("close");
         }    
      });
+     elem2.find("form").submit(function() {
+       return false;
+     })
     }  
   });
 };
@@ -3510,7 +3662,7 @@ PersonView.prototype.renderPersonGroupRelation = function(id, g_id) {
     });
     if (!leiter_check) {
       alert("Nicht editierbar, da es sich um den einzigen Leiter der Gruppe handelt. " +
-          "Gruppen des Gruppentyps '"+masterData.groupTypes[masterData.groups[g_id].gruppentyp_id].bezeichnung+
+          "Gruppen von "+f("gruppentyp_id")+" "+masterData.groupTypes[masterData.groups[g_id].gruppentyp_id].bezeichnung+
           "' muessen mindestens einen Leiter haben.");
       return null;
     } 
@@ -3528,7 +3680,9 @@ PersonView.prototype.renderPersonGroupRelation = function(id, g_id) {
   rows.push("</select>");
   
   rows.push("<tr><td>Dabei seit<td>");
-  rows.push('<input type="text" id="InputDate" size="10" value="'+allPersons[id].gruppe[g_id].d.toDateEn().toStringDe()+'"/>');
+  var d=allPersons[id].gruppe[g_id].d;
+  if (d==null) d=(new Date()).toStringEn();
+  rows.push('<input type="text" id="InputDate" size="10" value="'+d.toDateEn().toStringDe()+'"/>');
 
   rows.push("<tr><td>Notiz<td>");
   var d= new Date();
@@ -3641,11 +3795,14 @@ PersonView.prototype._saveEditEntryData = function (id, fieldname, renderViewNec
 
   cover.html("Die Daten werden gespeichert...");
   
-  churchInterface.jsendWrite(obj, function(ok) {
+  churchInterface.jsendWrite(obj, function(ok, data) {
       cover.dialog("close");
       cover.html("");
-      if (!ok) allPersons[id]=orig_obj;
-      if (obj["func"]=="delete_user") {
+      if (!ok) {
+        alert("Fehler beim Speichern: "+data);
+        allPersons[id]=orig_obj;
+      }
+      if (obj["func"]=="deletePerson") {
         allPersons[id]=null;
         t.renderList();
       } 
@@ -3661,7 +3818,7 @@ PersonView.prototype._saveEditEntryData = function (id, fieldname, renderViewNec
 };   
 
 /**
- * Bereitet die Daten fŸr ein renderSelect vor
+ * Bereitet die Daten fï¿½r ein renderSelect vor
  * withDataAuth: Auch die Datenautorisierung nehmen, default=ja
  */
 function getAuthAsDataArray(withDataAuth) {
@@ -3681,37 +3838,39 @@ function getAuthAsDataArray(withDataAuth) {
 PersonView.prototype.msg_filterChanged = function (id, oldVal) {
   var t=this;
 
-  // Wenn nicht "Meine Gruppen" geŠndert wurden, ich aber Meine Gruppen ein intelligente Gruppe gefiltert habe
+  // Wenn nicht "Meine Gruppen" geï¿½ndert wurden, ich aber Meine Gruppen ein intelligente Gruppe gefiltert habe
   if ((id!="filterMeine Gruppen") && (this.filter["filterMeine Gruppen"]!=null) && 
                  (this.filter["filterMeine Gruppen"].indexOf("filter")==0)) {
     delete this.filter["filterMeine Gruppen"];
     this.msg_filterChanged("filterMeine Gruppen",null);
   } 
-  // Wenn "Meine Gruppen" geŠndert wurde
+  // Wenn "Meine Gruppen" geï¿½ndert wurde
   else if (id=="filterMeine Gruppen") {
     $("#cdb_group").html("");
     if (masterData.settings.selectedMyGroup!=t.filter['filterMeine Gruppen']) {
       masterData.settings.selectedMyGroup=t.filter['filterMeine Gruppen'];
       churchInterface.jsendWrite({func:"saveSetting", sub:"selectedMyGroup", val:(masterData.settings.selectedMyGroup==null?"null":masterData.settings.selectedMyGroup)});
     }
-    // Wenn es mit "filter" anfŠngt, dann handelt es sich jetzt um intelligente Gruppen
+    // Wenn es mit "filter" anfï¿½ngt, dann handelt es sich jetzt um intelligente Gruppen
     if ((typeof t.filter['filterMeine Gruppen']=="string") && (t.filter['filterMeine Gruppen'].indexOf("filter")==0)) {
       // Nun kopiere intelligente Gruppe in die Filter
       var merker=t.filter['filterMeine Gruppen'];
       t.filter=new cc_copyArray(masterData.settings.filter[t.filter['filterMeine Gruppen'].substr(6,99)]);
-      t.makeFilterStatus("Status", t.filter.filterStatus);
-      t.makeFilterStatus("Station", t.filter.filterStation);
-      t.makeFilterStatus("Bereich", t.filter.filterBereich, masterData.auth.dep);
+      t.makeMasterDataMultiselectFilter("Status", t.filter.filterStatus);
+      t.makeMasterDataMultiselectFilter("Station", t.filter.filterStation);
+      t.makeMasterDataMultiselectFilter("Bereich", t.filter.filterBereich, masterData.auth.dep);
 
       t.filter["filterMeine Gruppen"]=merker;
       t.renderFurtherFilter();
+      t.renderTodos();
     }
-    // Wenn es vorher eine intelligente Gruppe war, mu§ ich nun Filter wieder lšschen
+    // Wenn es vorher eine intelligente Gruppe war, muï¿½ ich nun Filter wieder lï¿½schen
     else if ((typeof oldVal=="string") && (oldVal.indexOf("filter")==0)) {
       var merker=t.filter['filterMeine Gruppen'];
       t.resetPersonFilter();
       t.resetGroupFilter();  
       t.filter['filterMeine Gruppen']=merker;
+      t.renderTodos();
       t.renderFurtherFilter();
     }
     if ((t.filter['filterMeine Gruppen']>0)) {
@@ -3791,7 +3950,7 @@ PersonView.prototype.renderPersonFilter = function() {
     data:masterData.nationalitaet, 
     label:"Nationalit&auml;t", 
     selected: this.getFilter("filterNationalitaet"),
-    freeoption:true, type:"medium"
+    freeoption:true, type:"small"
   }));
   
   var _member="";
@@ -3801,6 +3960,12 @@ PersonView.prototype.renderPersonFilter = function() {
   });
   
   rows.push('<td width="190px">');    
+  rows.push(form_renderCheckbox({
+    cssid:"isMember",
+    checked:this.filter["isMember"],
+    controlgroup:false,
+    label:"Ist Mitglied"     
+  }));        
    rows.push(form_renderCheckbox({
     cssid:"withoutEMail",
     checked:this.filter["withoutEMail"],
@@ -3932,28 +4097,24 @@ PersonView.prototype.renderPersonFilter = function() {
 PersonView.prototype.renderGroupFilter = function() {
 
   var rows = new Array();
-  //rows.push("<legend>Gruppenfilter</legend>");
   rows.push('<div style="float:right;margin-top:10px;margin-right:10px;"><a href="#" title="Filter zur&uuml;cksetzen" id="reset_groupfilter"><img style="vertical-align:middle" width=20px src="'+masterData.modulespath+'/images/delete_2.png"/></a></div>'); 
-
   rows.push('<div class="well"><table cellpadding="5px" class="">');
   
-  if (this.filter["filterTyp 1"]==null) this.filter["filterTyp 1"]=""; 
+  if (this.filter["filterOn 1"]==null) this.filter["filterOn 1"]=true; 
   
   k=1;
-  while (this.filter["filterTyp "+k]!=null) {
+  while (this.filter["filterOn "+k]!=null) {
     rows.push("<tr><td>");
     rows.push(form_renderSelect({
       data:masterData.groupFilterTypes,
       label:"Filter "+k,
-//       separator:": ",
       selected:this.filter["filterFilter "+k],
       cssid:"filterFilter "+k,
       controlgroup:true, type:"small"
     }));
     rows.push('<td>'+form_renderSelect({
       data:masterData.groupTypes,
-      label:"Typ "+k,
-//      separator:": ",
+      label:f("gruppentyp_id")+" "+k,
       selected:this.filter["filterTyp "+k],
       cssid:"filterTyp "+k,
       controlgroup:true, freeoption:true, type:"medium"
@@ -3963,13 +4124,12 @@ PersonView.prototype.renderGroupFilter = function() {
     rows.push(form_renderSelect({
       data:masterData.groups,
       label:"Gruppe "+k,
-//      separator:": ",
       selected:this.filter["filterGruppe "+k],
       cssid:"filterGruppe "+k,
       controlgroup:true, freeoption:true, type:"medium",
       func:     function(a) {
-        return (((t.filter["filterTyp "+k]=="") || (a.gruppentyp_id==t.filter["filterTyp "+k])) 
-            && (groupView.isAllowedToSee(a.id))
+        return (((t.filter["filterTyp "+k]=="") || t.filter["filterTyp "+k]==null || (a.gruppentyp_id==t.filter["filterTyp "+k])) 
+            && (groupView.isAllowedToSeeDetails(a.id))
             && (masterData.groups[a.id].valid_yn==1)
             && ((t.filter["filterDistrikt "+k]==null) || (t.filter["filterDistrikt "+k]=="") || (t.filter["filterDistrikt "+k]==a.distrikt_id) ));
          }
@@ -3979,8 +4139,7 @@ PersonView.prototype.renderGroupFilter = function() {
     
     rows.push(form_renderSelect({
       data:masterData.districts,
-      label:"Distrikt "+k,
-//       separator:": ",
+      label:f("distrikt_id")+" "+k,
       selected:this.filter["filterDistrikt "+k],
       cssid:"filterDistrikt "+k,
       controlgroup:true, freeoption:true, type:"medium"
@@ -3991,7 +4150,6 @@ PersonView.prototype.renderGroupFilter = function() {
     rows.push(form_renderSelect({
       data:masterData.groupMemberTypes,
       label:"Teilnehmerstatus "+k,
-//       separator:": ",
       selected:this.filter["filterTeilnehmerstatus "+k],
       cssid:"filterTeilnehmerstatus "+k,
       controlgroup:true, freeoption:true, type:"medium",
@@ -4024,6 +4182,7 @@ PersonView.prototype.renderGroupFilter = function() {
       var i=$(this).attr("id").substr(19,99);
       var k=i*1+1;
       while (t.filter["filterTyp "+k]!=null) {
+        t.filter["filterOn "+i]=t.filter["filterOn "+k];
         t.filter["filterTyp "+i]=t.filter["filterTyp "+k];
         t.filter["filterFilter "+i]=t.filter["filterFilter "+k];
         t.filter["filterGruppe "+i]=t.filter["filterGruppe "+k];
@@ -4036,6 +4195,7 @@ PersonView.prototype.renderGroupFilter = function() {
         i=k;
         k=k+1;
       }
+      delete t.filter["filterOn "+i];
       delete t.filter["filterTyp "+i];
       delete t.filter["filterFilter "+i];
       delete t.filter["filterGruppe "+i];
@@ -4048,8 +4208,8 @@ PersonView.prototype.renderGroupFilter = function() {
     }
     else if ($(this).attr("id").indexOf("add-groupfilter")==0) {
       var k=1;
-      while (t.filter["filterTyp "+k]!=null) k=k+1;
-      t.filter["filterTyp "+k]="";
+      while (t.filter["filterOn "+k]!=null) k=k+1;
+      t.filter["filterOn "+k]="";
     }
   });
 };
@@ -4101,7 +4261,7 @@ PersonView.prototype.renderRelationFilter = function() {
 
   rows.push(form_renderSelect({
     data:masterData.groupTypes,
-    label:"in Gruppentyp ",
+    label:"in "+f("gruppentyp_id"),
     selected:this.filter["filterRelationExtGroupTyp"],
     cssid:"filterRelationExtGroupTyp",
     controlgroup:true, freeoption:true, type:"medium"
@@ -4117,7 +4277,7 @@ PersonView.prototype.renderRelationFilter = function() {
     cssid:"filterRelationExtGroup",
     controlgroup:true, freeoption:true, type:"medium",
     func:     function(a) {
-      return ((a.gruppentyp_id==t.filter["filterRelationExtGroupTyp"]) && (groupView.isAllowedToSee(a.id))
+      return ((a.gruppentyp_id==t.filter["filterRelationExtGroupTyp"]) && (groupView.isAllowedToSeeDetails(a.id))
           && (masterData.groups[a.id].valid_yn==1));
        }
   }));
@@ -4142,7 +4302,7 @@ PersonView.prototype.renderFurtherFilter = function () {
     rows.push('<li class="'+(t.currentFurtherFilter=="gruppe"?"active":"")+'"><a href="#" data-filter="gruppe" class="filter">Gruppenfilter</a>');
     if (masterData.auth.viewalldetails)
       rows.push('<li class="'+(t.currentFurtherFilter=="beziehung"?"active":"")+'"><a href="#" data-filter="beziehung" class="filter">Beziehungsfilter</a>');
-    rows.push('<li class="pull-right"><a href="#" class="hide">Filter schliessen</a>');
+    rows.push('<li class="pull-right"><a href="#" class="hide">Filter schlieÃŸen</a>');
     rows.push('</ul>');
     rows.push('<div id="furtherFilterDetail"></div>');
     
@@ -4166,17 +4326,6 @@ PersonView.prototype.renderFurtherFilter = function () {
       return false;
     });
     
-
-    // Voriger Callback schaut, ob der Filtertyp geaendert wurde, denn dann muessen wir Distrikt und Gruppe zurŸcksetzen
-    $("#addfilter select").change(function(c) {
-      /*if ($(this).attr("id").indexOf("filterTyp ")==0) {
-        delete t.filter["filterFilter "+$(this).attr("id").substr(10,99)];        
-        delete t.filter["filterGruppe "+$(this).attr("id").substr(10,99)];        
-        delete t.filter["filterDistrikt "+$(this).attr("id").substr(10,99)];        
-        delete t.filter["filterTeilnehmerstatus "+$(this).attr("id").substr(10,99)];        
-      }*/
-    });
-
     this.implantStandardFilterCallbacks(this, "addfilter");
   
     $("#furtherFilterDetail select").change(function(c) {
@@ -4221,6 +4370,7 @@ PersonView.prototype.resetPersonFilter = function() {
   delete this.filter["dateIgnoreYear"];
   delete this.filter["filterNationalitaet"];
   delete this.filter["geburtsort"];
+  delete this.filter["isMember"];
   delete this.filter["withoutPicture"];
   delete this.filter["withoutEMail"];
   delete this.filter["dateNotSet"];
@@ -4230,6 +4380,13 @@ PersonView.prototype.resetPersonFilter = function() {
   delete this.filter["filterStation"]; 
   delete this.filter["filterBereich"]; 
   delete this.filter["filterStatus"];
+  // Todo-filter
+  delete this.filter["followupOverdue"];
+  delete this.filter["followupToday"];
+  delete this.filter["groupSubscribe"];
+  delete this.filter["groupDelete"];
+  
+  
   delete this.filter["filterGeschlecht"]; 
   delete this.filter["filterFamilienstatus"];
   z=0;
@@ -4254,7 +4411,7 @@ PersonView.prototype.resetGroupFilter = function () {
   var t=this;
   k=1;
   delete t.filter["filterOr"];
-  while (t.filter["filterTyp "+k]!=null) {
+  while (t.filter["filterOn "+k]!=null) {
     delete t.filter["filterTyp "+k];
     delete t.filter["filterFilter "+k];
     delete t.filter["filterDistrikt "+k];
@@ -4263,6 +4420,10 @@ PersonView.prototype.resetGroupFilter = function () {
     delete t.filter["filterGruppeInSeit "+k];        
     delete t.filter["filterGruppeWarInVon "+k];        
     delete t.filter["filterGruppeWarInBis "+k];        
+    delete t.filter["filterGruppeWarInBis "+k];
+    delete t.filter["filterTeilnehmerstatus "+k];
+    if (k>0)
+      delete t.filter["filterOn "+k];
     k=k+1;  
   }  
 };
@@ -4274,13 +4435,18 @@ PersonView.prototype.renderGroupEntry = function() {
   t=this;
   // Start function renderGroupEntry()  
   $("#cdb_group").html("");
-  if ((this.filter['filterMeine Gruppen']>0) && (allPersons[masterData.user_pid]!=null) &&
-      ((allPersons[masterData.user_pid].districts!=null && allPersons[masterData.user_pid].districts[masterData.groups[this.filter['filterMeine Gruppen']].distrikt_id]!=null) || 
-      (allPersons[masterData.user_pid].gruppentypen!=null && allPersons[masterData.user_pid].gruppentypen[masterData.groups[this.filter['filterMeine Gruppen']].gruppentyp_id]!=null) || 
-         (allPersons[masterData.user_pid].gruppe[this.filter['filterMeine Gruppen']].leiter>=1) && 
-       (allPersons[masterData.user_pid].gruppe[this.filter['filterMeine Gruppen']].leiter<=2)) 
-       && (masterData.groups[this.filter['filterMeine Gruppen']].meetingList==null)) {
-
+  if ((this.filter['filterMeine Gruppen']>0) 
+      && (allPersons[masterData.user_pid]!=null) 
+      && (masterData.groups[this.filter['filterMeine Gruppen']]!=null)
+      && (masterData.groups[this.filter['filterMeine Gruppen']].meetingList==null)
+      &&
+         (
+            (allPersons[masterData.user_pid].districts!=null 
+                   && allPersons[masterData.user_pid].districts[masterData.groups[this.filter['filterMeine Gruppen']].distrikt_id]!=null) 
+            || (allPersons[masterData.user_pid].gruppentypen!=null && allPersons[masterData.user_pid].gruppentypen[masterData.groups[this.filter['filterMeine Gruppen']].gruppentyp_id]!=null) 
+            || (allPersons[masterData.user_pid].gruppe[this.filter['filterMeine Gruppen']].leiter>=1  
+                   && allPersons[masterData.user_pid].gruppe[this.filter['filterMeine Gruppen']].leiter<=2)) 
+     ) {
       t.loadGroupMeetingList(this.filter['filterMeine Gruppen']);
    } 
    else {
@@ -4325,6 +4491,9 @@ PersonView.prototype.exportData = function() {
   });  
   // Weil hinten ein Komma steht einfach eine -1 ergaenzen, die ID gibt es nicht.
   exportIds=exportIds+"-1";
+  
+  if (this.filter["filterMeine Gruppen"]!=null) 
+    exportIds=exportIds+"&groupid="+this.filter["filterMeine Gruppen"];
 
   if (i==0) alert(unescape("Es d%FCrfen nur max. "+masterData.max_exporter+" Eintr%E4ge exportiert werden. Bitte genauer filtern%21"));
   else {
@@ -4383,41 +4552,52 @@ PersonView.prototype.exportData = function() {
 };
 
 PersonView.prototype.renderGroupContent = function(g_id) {
+  var t=this;
   var json=null;
   if ((masterData.groups!=null) && (masterData.groups[g_id]!=null))
     json=masterData.groups[g_id].meetingList;  
   var rows = new Array();
   if (masterData.settings.selectedGroupType==-4) {
-    rows.push('<div class="well">');
-    if (json!=null) {
-      rows.push('<legend>Gruppenteilnahme <a href="#" id="a_gruppenliste">'+masterData.groups[g_id].bezeichnung+'</a> im <i>'+monthNames[t.gruppenteilnehmerdatum.getMonth()]+" "+t.gruppenteilnehmerdatum.getFullYear()+'</i></legend>');
-      rows.push(form_renderButton({label:"<< Monat zur&uuml;ck", cssid:"btn_monatback"})+" ");
-      rows.push(form_renderButton({label:"Monat vor >>", cssid:"btn_monatfurther"}));
+    if (g_id==null) {
+      delete masterData.settings.selectedGroupType;
+      t.renderGroupContent();
+      return false;
     }
-    rows.push(form_renderButton({label:"Gruppenteilnahme schliessen", cssid:"btn_gruppenteilnahme",htmlclass:"pull-right"}));
+    rows.push('<div class="well">');
+      if (json!=null) {
+        rows.push('<legend>Gruppentreffen <a href="#" id="a_gruppenliste">'+masterData.groups[g_id].bezeichnung+'</a> im <i>'+monthNames[t.gruppenteilnehmerdatum.getMonth()]+" "+t.gruppenteilnehmerdatum.getFullYear()+'</i></legend>');
+        rows.push(form_renderButton({label:"<< Monat zur&uuml;ck", cssid:"btn_monatback"})+" ");
+        rows.push(form_renderButton({label:"Monat vor >>", cssid:"btn_monatfurther"}));
+      }
+      rows.push('<span class="pull-right">');
+      rows.push(form_renderButton({label:"Gruppentreffen hinzuf&uuml;gen", cssid:"btn_addGroupMeetingDate"})+"&nbsp;");
+      rows.push(form_renderButton({label:"Pflege beenden", cssid:"btn_gruppentreffen"}));
+      rows.push('</span>');
     rows.push('</div>');
   }
   else {
-
     var rows2 = new Array();
     var datumvon=new Date();
     gruppentreffen_id=-1;
     if (json!=null) {
       $.each(churchcore_sortData(json,"datumvon"), function(k,a) {
         if (a.eintragerfolgt_yn==0) {
-          rows2.push('<input type="button" class="btn pull-right" value="Treffen ausgefallen"/>');
-          rows2.push('<input type="button" class="btn pull-right" value="Auswahl absenden"/>');
+          rows2.push('<legend>'+form_renderImage({src:"persons.png"})+'&nbsp;Bitte noch ein Gruppentreffen pflegen...</legend>');
+          rows2.push('<span class="pull-right">')
+          rows2.push('<input type="button" class="btn" value="Auswahl absenden"/>&nbsp;');
+          rows2.push('<input type="button" class="btn" value="Treffen ausgefallen"/>');
+          rows2.push('</span>');
           if (a.datumvon.toDateEn(true).toStringDe(true)==a.datumbis.toDateEn(true).toStringDe(true))
-            rows2.push("<p><b>Bitte ausw&auml;hlen: Wer war am "+a.datumvon.toDateEn(true).toStringDe(true)+" da?</b>");
+            rows2.push("<p><b>Wer war am "+a.datumvon.toDateEn(true).toStringDe(true)+" da?</b>");
           else
-            rows2.push("<p><b>Bitte ausw&auml;hlen: Wer war in der Zeit vom "+a.datumvon.toDateEn().toStringDe()+" - "+a.datumbis.toDateEn().toStringDe()+" da?</b>");
-          rows2.push('<br><small>Zuerst die Personen markieren, die bei dem Treffen dabei gewesen sind. Dann auf "Auswahl absenden" klicken.</small>');
+            rows2.push("<p><b>Wer war in der Zeit vom "+a.datumvon.toDateEn().toStringDe()+" - "+a.datumbis.toDateEn().toStringDe()+" da?</b>");
+          rows2.push('<br><small>Bitte die Personen markieren, die bei dem Treffen dabei gewesen sind. Dann auf "Auswahl absenden" klicken.</small>');
           gruppentreffen_id=a.id;
           datumvon=a.datumvon.toDateEn(true);
           return false;
         } 
       });
-      // Kein zu pflegende Gruppe gefunden, also rows wieder löschen.
+      // Kein zu pflegende Gruppe gefunden, also rows wieder lï¿½schen.
       if (gruppentreffen_id==-1)                 
         rows2 = new Array();
     }
@@ -4465,7 +4645,7 @@ PersonView.prototype.renderGroupContent = function(g_id) {
           });        
           $(this).dialog("close");
         },
-        "Abbruch": function() {
+        "Abbrechen": function() {
           $(this).dialog("close");
         }
       });
@@ -4476,7 +4656,10 @@ PersonView.prototype.renderGroupContent = function(g_id) {
       churchInterface.setCurrentView(groupView);
       return false;
     }
-    else if ($(this).attr("id")=="btn_gruppenteilnahme") {
+    else if ($(this).attr("id")=="btn_addGroupMeetingDate") {
+      t.addGroupMeetingDate();
+    }
+    else if ($(this).attr("id")=="btn_gruppentreffen") {
       var gt=churchcore_getFirstElement(masterData.groupTypes);
       var id=null;
       if (gt!=null) id=gt.id;      
@@ -4498,7 +4681,7 @@ PersonView.prototype.renderGroupContent = function(g_id) {
     }
     else {
       churchInterface.jsendWrite({ func: "GroupMeeting", sub:"canceled", gt_id: gruppentreffen_id }, function(oi, json) {
-        // info löschen, damit er neue Infos holt.
+        // info lï¿½schen, damit er neue Infos holt.
         masterData.groups[t.filter['filterMeine Gruppen']].meetingList=null;
         t.renderGroupEntry();
         t.renderList();
@@ -4549,7 +4732,7 @@ PersonView.prototype.smsPerson = function(arr) {
         });
       $(this).dialog("close");            
     },          
-    "Abbruch": function() {
+    "Abbrechen": function() {
       $(this).dialog("close");
     }
   });
@@ -4582,7 +4765,7 @@ PersonView.prototype.mailer = function() {
     if ((counter<=maxMails) && (t.checkFilter(a))) {
       if ((a.email!=null) && (a.email!="")) {
         counter++;
-        // Wenn ich das in ein Extra Fenster ausgeben, kšnnen auch die Namen dazu
+        // Wenn ich das in ein Extra Fenster ausgeben, kï¿½nnen auch die Namen dazu
         mailTo=mailTo+$.trim(a.email)+separator;
         ids=ids+a.id+",";
       }  
@@ -4592,7 +4775,7 @@ PersonView.prototype.mailer = function() {
   if (counter>=maxMails) alert(unescape("Es d%FCrfen nur max. "+masterData.max_exporter+" Eintr%E4ge exportiert werden. Bitte genauer filtern%21"));
   else {
 //    if (noEmail) alert("Hinweis: Einige EintrÃ¤ge haben keine E-Mailadresse, diese wurden nicht berÃ¼cksichtigt!");
-    if ((noEmail) && confirm("Einige Personen haben keine E-Mail-Adresse, sollen diese anschliessend angezeigt werden?")) {
+    if ((noEmail) && confirm("Einige Personen haben keine E-Mail-Adresse, sollen diese anschlieÃŸend angezeigt werden?")) {
       t.filter["withoutEMail"]=1;
       if (!t.furtherFilterVisible) { 
         t.furtherFilterVisible=true;  
@@ -4645,13 +4828,13 @@ PersonView.prototype.getMyGroupsSelector = function(withIntelligentGroups) {
       (currentView.filter['filterMeine Gruppen']!=masterData.settings.selectedMyGroup))
     // Wenn es keine Intelligente Gruppe gibt, sollte er sie auch nicht vorselektieren!
     if ((withIntelligentGroups) || (masterData.settings.selectedMyGroup.indexOf("filter")!=0)) {
-      if ((currentView.filter.searchEntry==null)) {
+      if ((currentView.filter.searchEntry==null && currentView==personView)) {
         currentView.filter['filterMeine Gruppen']=masterData.settings.selectedMyGroup;
         this.msg_filterChanged("filterMeine Gruppen",null);
       }
     }
 
-  // Machen wir nur, wenn die aktuelle Person schon gemappt ist mit dem Drupal User
+  // If current person already loaded and available
   if ((masterData.user_pid!=null) && (allPersons[masterData.user_pid]!=null)) {
     // Vergleichsdatum fuer die Listenauswahl, alle Gruppen wo ich Leiter bin und
     // die kein Abschlussdatum haben oder das Abschlussdatum 14 Tage zurueck liegt
@@ -4733,18 +4916,6 @@ PersonView.prototype.getMyGroupsSelector = function(withIntelligentGroups) {
         arr=arr.concat(churchcore_sortArray(_owngroups_intelligent,"bezeichnung"));
       }  
     }
-    /*
-    if ((withIntelligentGroups) && (masterData.newsletter!=null) && (masterData.auth.newsletter!=null)) {
-      var _newsgroup=new Array();
-      $.each(masterData.auth.newsletter, function(k,a) {
-        _newsgroup.push(_createEntry('newsletter'+a, '&nbsp; '+masterData.newsletter[a].bezeichnung));
-      });
-      if (_newsgroup.length>0) {
-        arr.push(_createEntry(-1, "-- Newsletter --"));
-        arr=arr.concat(churchcore_sortArray(_newsgroup,"bezeichnung"));
-      }        
-    }*/
-    
     
     if (arr.length==0) 
       arr.push(_createEntry(-1, "Keine eigene Gruppe"));

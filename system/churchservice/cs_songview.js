@@ -5,6 +5,8 @@ function SongView() {
   this.songsLoaded=false;
   this.allDataLoaded=false;
   this.sortVariable="bezeichnung";
+  this.availableRowCounts=[10,25,50,200];
+
 }
 
 Temp.prototype = ListView.prototype;
@@ -18,7 +20,8 @@ SongView.prototype.getSongFromArrangement = function(arrangement_id) {
     $.each(allSongs, function(k,a) {
       $.each(a.arrangement, function(i,b) {
         if (b.id==arrangement_id) {
-          a.active_arrangement_id=arrangement_id;
+          if (a.active_arrangement_id!=null)
+            a.active_arrangement_id=arrangement_id;
           song=a;
           return false;
         }
@@ -39,18 +42,6 @@ SongView.prototype.getData = function(sorted) {
   }
   else {
     return allSongs;
-    var list=new Object();
-    if (allSongs!=null)
-      $.each(allSongs, function(k,song) {
-        $.each(song.arrangement, function(i,arr) {
-          var a=new Array();
-          a.song_id=song.id;
-          a.arrangement_id=arr.id;
-          a.id=song.id+"_"+arr.id;
-          list[a.id]=a;
-        });
-      });
-    return list;
   }
 };
 
@@ -60,7 +51,11 @@ SongView.prototype.renderFilter = function () {
   
   if ((masterData.settings.filterSongcategory=="") || (masterData.settings.filterSongcategory==null))
     delete masterData.settings.filterSongcategory;
-  else t.filter["filterSongcategory"]=masterData.settings.filterSongcategory;
+  else if (t.filter["searchEntry"]==null) t.filter["filterSongcategory"]=masterData.settings.filterSongcategory;
+
+  if ((masterData.settings.searchStandard!="true") || (masterData.settings.searchStandard==null))
+    delete masterData.settings.searchStandard;
+  else t.filter["searchStandard"]=masterData.settings.searchStandard;
   
   var rows = new Array();
   
@@ -78,9 +73,18 @@ SongView.prototype.renderFilter = function () {
                     func:function(s) {return (masterData.auth.viewsongcategory!=null) && (masterData.auth.viewsongcategory[s.id])}
   });
  
-  form.addCheckbox({cssid:"searchStandard",label:"Arrangements anzeigen"});  
+  form.addCheckbox({cssid:"searchStandard",label:"Arrangements anzeigen", checked:masterData.settings.searchStandard=="true"});  
   rows.push(form.render(true));
-     
+
+  /*
+  if (agendaView.currentAgenda!=null && agendaView.currentAgenda!="") {
+    var form = new CC_Form("Zum Ablauf hinzufügen");
+    form.addSelect({label:"Arrangement", type:"medium", data:allAgendas});
+    form.addSelect({label:"Einordnen nach", type:"medium", data:agendaView.currentAgenda.items});
+    form.addButton({label:"Auswahl hinzufügen", type:"medium"});
+    rows.push(form.render(true));
+  }
+    */ 
   rows.push("<div id=\"cdb_filtercover\"></div>");
  
   $("#cdb_filter").html(rows.join(""));
@@ -102,7 +106,7 @@ SongView.prototype.checkFilter = function(a) {
   if (songView.filter!=null) {
     var filter=songView.filter;
     if ((filter.searchEntry!=null) && (song.bezeichnung.toLowerCase().indexOf(filter.searchEntry.toLowerCase())==-1)
-        && (filter.searchEntry!=a.active_arrangement_id) && (filter.searchEntry!="#"+a.id))
+        && (filter.searchEntry!=a.active_arrangement_id) && (filter.searchEntry!="#"+a.id)) 
       return false;
     
     if ((filter.filterSongcategory!=null) 
@@ -116,23 +120,8 @@ SongView.prototype.checkFilter = function(a) {
   return true;
 };
 
-SongView.prototype.renderTooltip = function(tooltip, divid) {
-  var song_id=tooltip.parents("div.entrydetail").attr("data-song-id");
-  var ar_id=tooltip.parent().attr("data-id");
-  var id=tooltip.attr("tooltip");
-  
-  return this.renderTooltipForFiles(tooltip, divid, allSongs[song_id].arrangement[ar_id].files[id], masterData.auth.editsong);  
-};
-
-SongView.prototype.tooltipCallback = function(id, tooltip) {
-  var song_id=tooltip.parents("div.entrydetail").attr("data-song-id");
-  var ar_id=tooltip.parent().attr("data-id");
-  return this.tooltipCallbackForFiles(id, tooltip, allSongs[song_id].arrangement, ar_id);
-};
-
 SongView.prototype.renderFiles = function(filecontainer, arrangement_id) {
   var t=this;
-  t.clearTooltip(true);
   if (masterData.auth.editsong) {
     t.renderFilelist("", filecontainer, arrangement_id, function(file_id) {
       delete filecontainer[arrangement_id].files[file_id];
@@ -142,31 +131,47 @@ SongView.prototype.renderFiles = function(filecontainer, arrangement_id) {
   else {
     t.renderFilelist("", filecontainer, arrangement_id);
   }
-  $("div.filelist[data-id="+arrangement_id+"] span[tooltip],a[tooltip]").hover(
-      function() {
-        drin=true;
-        this_object.prepareTooltip($(this), null, $(this).attr("data-tooltiptype"));
-      }, 
-      function() {
-        drin=false;
-        window.setTimeout(function() {
-          if (!drin)
-            this_object.clearTooltip();
-        },250);
-      }
-    );   
+  if (!churchcore_touchscreen()) {
+    $("div.filelist[data-id="+arrangement_id+"] span.tooltip-file").each(function() {
+      var tooltip=$(this);
+      tooltip.tooltips({
+        data:{id:tooltip.attr("data-id"), 
+              ar_id:tooltip.parent().attr("data-id"),
+              song_id:tooltip.parents("div.entrydetail").attr("data-song-id")
+             },
+        render:function(data) {
+          return t.renderTooltipForFiles(tooltip, allSongs[data.song_id].arrangement[data.ar_id].files[data.id], masterData.auth.editsong);            
+        },      
+        afterRender: function(element, data) {
+          return t.tooltipCallbackForFiles(data.id, element, allSongs[data.song_id].arrangement, data.ar_id);          
+        }
+      });    
+    });  
+  }
 };
 
 SongView.prototype.renderEntryDetail = function(pos_id) {
   var t=this;
   var song=allSongs[pos_id];
   var arrangement=song.arrangement[song.active_arrangement_id];
+  
+  if (t.songselect!=null) {
+    agendaView.addItem(t.songselect.orig_item_id, t.songselect.post, false, arrangement);
+    churchInterface.setCurrentView(agendaView);
+    t.songselect=null;
+    song.open=false;
+    return;
+  }
 
   var rows=new Array();
   rows.push('<div class="entrydetail" id="entrydetail_'+pos_id+'" data-song-id="'+song.id+'" data-arrangement-id="'+arrangement.id+'">');  
   
   rows.push('<div class="well">');  
-  rows.push('<b style="font-size:140%">'+song.bezeichnung+' - '+arrangement.bezeichnung+'</b>');
+  rows.push('<b style="font-size:140%">'+song.bezeichnung+' - '+arrangement.bezeichnung+'&nbsp; ');
+  if (masterData.auth.editsong) 
+    rows.push(form_renderImage({src:"options.png", htmlclass:"edit-song", link:true, width:20}));
+  rows.push('</b>');
+
   
   if (song.autor!="")
   rows.push('<br/><small>Autor: '+song.author+'</small>');
@@ -219,7 +224,7 @@ SongView.prototype.renderEntryDetail = function(pos_id) {
   rows.push('</div>');
   rows.push('<div class="pull-right">');
   if (masterData.auth.editsong) 
-    rows.push('<a href="#" class="song-delete">'+form_renderImage({src:"trashbox.png", width:16})+'</a>&nbsp; ');
+    rows.push('<a href="#" class="delete-song">'+form_renderImage({src:"trashbox.png", width:16})+'</a>&nbsp; ');
   rows.push('<small>#'+song.id+'</small></div>');
   $("tr[id=detail" + pos_id + "]").remove();
   var elem=$("tr[id=" + pos_id + "]").after('<tr id="detail' + pos_id + '" class="detail"><td colspan="8" id="detailTD' + pos_id + '">'+rows.join("")+"</td></tr>");
@@ -264,8 +269,12 @@ SongView.prototype.renderEntryDetail = function(pos_id) {
     t.makeAsStandardArrangement(song.id, arrangement.id);    
     return false;
   });
-  $("td[id=detailTD"+pos_id+"] a.song-delete").click(function(e) {
+  $("td[id=detailTD"+pos_id+"] a.delete-song").click(function(e) {
     t.deleteSong(song.id);
+    return false;
+  });
+  $("td[id=detailTD"+pos_id+"] a.edit-song").click(function(e) {
+    t.editSong(song.id);
     return false;
   });
   
@@ -301,16 +310,16 @@ SongView.prototype.deleteSong = function(song_id) {
  * @param song_id and arrangement_id give an id of a song which should be opened
  */
 SongView.prototype.loadSongData = function(song_id, arrangement_id) {
-  if (!this.songsLoaded) {
-    var elem = this.showDialog("Lade Songs", "Lade Songs...", 300,300);
+  var t=this;
+  if (!t.songsLoaded) {
     cs_loadSongs(function() {
-      this_object.songsLoaded=true;
-      elem.dialog("close");
+      t.songsLoaded=true;
       if (allSongs[song_id]!=null) {
         allSongs[song_id].open=true;
-        allSongs[song_id].active_arrangement_id=arrangement_id;
+        if (allSongs[song_id].active_arrangement_id==null)
+          allSongs[song_id].active_arrangement_id=arrangement_id;
       }
-      if (churchInterface.getCurrentView()==this_object)
+      if (churchInterface.getCurrentView()==t)
         this_object.renderList();
     });
   }
@@ -424,15 +433,6 @@ function processFieldInput(elem, save) {
 
 SongView.prototype.addFurtherListCallbacks = function(cssid) {
   var t=this;
-  $("#cdb_content .hoveractor").hover(
-      function () {
-        $(this).children("span.hoverreactor").fadeIn('fast',function() {});
-      }, 
-      function () {
-        $(this).children("span.hoverreactor").fadeOut('fast');
-      }
-    );
-  
   $("#cdb_content a.show-arrangement").click(function() {
     var song_id=$(this).parents("tr").attr("id");
     var arr_id=$(this).attr("data-arrangement-id");
@@ -441,54 +441,8 @@ SongView.prototype.addFurtherListCallbacks = function(cssid) {
     return false;
   });
   
-  /*
-  $("td.editable").hover(
-    function() {
-      $(this).addClass("active");
-    },
-    function() {
-      $(this).removeClass("active");
-    }
-  );
-  $("td.editable").click(function() {
-  	if ($(this).attr("data-oldval")==null) {
-  	  if ($("#inputFieldData").length==1) {
-  	    processFieldInput($("#inputFieldData"), true);
-  	  }
-
-	    var pos_id=$(this).parents("tr").attr("id");
-	    var i=pos_id.indexOf('_');
-	    var song=allSongs[pos_id.substr(0,i)];
-	    var arrangement=song.arrangement[pos_id.substr(i+1,99)];
-
-	    var val=$(this).text();
-	    $(this).attr("data-oldval",val);
-	    var rows = new Array();
-	    rows.push('<div id="inputData" class="input-append">');
-	      rows.push(form_renderInput({value:val, cssid:"inputFieldData", controlgroup:false, type:"small"}));
-        rows.push('<button class="btn ok" type="button"><i class="icon-ok"></i></button>');
-        rows.push('<button class="btn remove" type="button"><i class="icon-remove"></button>');
-      rows.push('</div>');
-	    rows.push();
-	    $(this).html(rows.join(""));
-      $('#inputData button').click(function() {
-        processFieldInput($("#inputFieldData"), $(this).hasClass('ok'));
-        return false;
-      });
-	    $("#inputFieldData").focus();
-	    $('#inputFieldData').keyup(function(e) {
-	      // Enter
-	      if (e.keyCode == 13)
-          processFieldInput($("#inputFieldData"), true);
-	      // Escape
-	      else if (e.keyCode == 27)
-          processFieldInput($("#inputFieldData"), false);
-	    });
-	   }
-  });*/
-
   $("#cdb_content a.edit-song").click(function(e) {
-    t.editSong($(this).attr("data-id"));
+    t.editSong($(this).parents("tr").attr("id"));
     return false;
   });
 };
@@ -580,9 +534,32 @@ SongView.prototype.getCountCols = function() {
 
 
 SongView.prototype.getListHeader = function () {
-  $("#cdb_group").html("");
+  var t=this;
+
+  if (t.songselect!=null) {
+    $.each(allSongs, function(k,a) {
+      a.open=false;
+    });
+    t.filter["searchStandard"]="true";
+    form = new CC_Form();
+    form.addHtml('<legend>Bitte einen Song auswählen!</legend>');
+    form.addHtml('<P>Um einen Song dem Ablauf hinzuzufügen bitte das gewünschte Arrangement aktivieren und dann auf den Songnamen klicken</p>');
+    form.addButton({label:"Auswählen abbrechen", htmlclass:"cancel"});
+    $("#cdb_group").html(form.render(true));
+  }
+  else {
+    $("#cdb_group").html("");
+  }
   
-  var this_object=this;
+  $("#cdb_group input.cancel").click(function() {
+    t.songselect=null;
+    t.renderView();
+  });
+
+  
+  if (masterData.settings.listViewTableHeight==null) masterData.settings.listViewTableHeight=1;
+  
+  
   this.loadSongData();
   var rows = new Array();
   if (masterData.settings.listViewTableHeight==0)
@@ -593,34 +570,42 @@ SongView.prototype.getListHeader = function () {
   rows.push('<th>Nr.');
     
   rows.push('<th>Bezeichnung');
-  if (this_object.filter["filterSongcategory"]==null)
+  if (t.filter["filterSongcategory"]==null)
     rows.push('<th>Kategorie');
-  rows.push('<th>Tonart<th>BPM<th>Takt');
+  rows.push('<th class="hidden-phone">Tonart<th class="hidden-phone">BPM<th class="hidden-phone">Takt');
 
   return rows.join("");
 };
 
 SongView.prototype.groupingFunction = function() {
   return null;
-}
+};
+
+SongView.prototype.getDefaultArrangement = function(song) {
+  if (song==null) return null;
+  var ret=null;
+  $.each(song.arrangement, function(k,a) {
+    ret=a;
+    if (a.default_yn==1) return false;
+  });
+  return ret;  
+};
 
 SongView.prototype.renderListEntry = function (list) {
+  var t=this;
   var rows = new Array();
   var song=allSongs[list.id];
   if (song.active_arrangement_id==null) {
-    $.each(song.arrangement, function(k,a) {
-      if (a.default_yn==1) {
-        song.active_arrangement_id=a.id;
-        return false;
-      }
-    });
+    var arr=t.getDefaultArrangement(song);
+    if (arr!=null) song.active_arrangement_id=arr.id;
   }
   var arr=song.arrangement[song.active_arrangement_id];
 
   rows.push('<td class="hoveractor"><a href="#" id="detail'+list.id+'">'+song.bezeichnung+"</a>");
   rows.push('&nbsp; <i><small>'+song.author.trim(50)+'</small></i>');
-  if (masterData.auth.editsong!=null) 
-    rows.push('&nbsp; <span class="hoverreactor" style="display:none"><a href="#" class="edit-song" data-id="'+list.song_id+'">'+form_renderImage({src:"options.png", width:16})+'</a></span>');
+  // Only nice to have, so not displayed when working on touchscreens
+  if (masterData.auth.editsong!=null && !churchcore_touchscreen()) 
+    rows.push('&nbsp; <span class="hoverreactor"><a href="#" class="edit-song" data-id="'+list.song_id+'">'+form_renderImage({src:"options.png", width:16})+'</a></span>');
   if (this.filter.searchStandard!=null) {
     rows.push("<br/>");
     $.each(song.arrangement, function(k,a) {
@@ -634,9 +619,9 @@ SongView.prototype.renderListEntry = function (list) {
 
   if (this_object.filter["filterSongcategory"]==null)
     rows.push('<td>'+masterData.songcategory[song.songcategory_id].bezeichnung);
-  rows.push('<td>'+arr.tonality);
-  rows.push('<td>'+arr.bpm);
-  rows.push('<td>'+arr.beat);
+  rows.push('<td class="hidden-phone">'+arr.tonality);
+  rows.push('<td class="hidden-phone">'+arr.bpm);
+  rows.push('<td class="hidden-phone">'+arr.beat);
 
   return rows.join("");
 };
@@ -655,9 +640,12 @@ SongView.prototype.messageReceiver = function(message, args) {
     }
   }
   if (message=="filterChanged") {
-    if (args[0]=="filterSongcategory") {
-      masterData.settings.filterSongcategory=$("#filterSongcategory").val();
-      churchInterface.jsendWrite({func:"saveSetting", sub:"filterSongcategory", val:masterData.settings.filterSongcategory});
+    if (args[0]=="filterSongcategory" || args[0]=="searchStandard") {
+      if (args[0]=="searchStandard")
+        masterData.settings[args[0]]=$("#"+args[0]).attr("checked")=="checked";
+      else
+        masterData.settings[args[0]]=$("#"+args[0]).val();
+      churchInterface.jsendWrite({func:"saveSetting", sub:args[0], val:masterData.settings[args[0]]});
     }
   }
 };

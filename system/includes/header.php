@@ -3,13 +3,14 @@
 <head>
 	<meta charset="utf-8">
 	<title><?php echo $config["site_name"].(isset($config["test"])?" TEST ":"")." - ".(isset($config[$q."_name"])?$config[$q."_name"]:$q); ?></title>
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 	    <meta name="description" content="ChurchTools">
     <meta name="author" content="">
 
 	
-	<link href="system/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-    <link href="system/assets/ui/jquery-ui-1.8.18.custom.css" rel="stylesheet">
+    <link href="system/assets/ui/custom-theme/jquery-ui-1.10.3.custom.css" rel="stylesheet">
+    <link href="system/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <!--  link href="system/assets/ui/jquery-ui-1.8.18.custom.css" rel="stylesheet"-->
     <link href="system/includes/churchtools.css" rel="stylesheet">
     
    <?php if (!$embedded) {?>
@@ -26,11 +27,14 @@
     <!--[if lt IE 9]>
       <script src="https://html5shim.googlecode.com/svn/trunk/html5.js"></script>
     <![endif]-->
-<script src="system/assets/js/jquery.js"></script>
+<script src="system/assets/js/jquery-1.10.2.min.js"></script>
+<script src="system/assets/js/jquery-migrate-1.2.1.min.js"></script>
+
 <script src="system/churchcore/shortcut.js"></script>
 <script src="system/assets/ui/jquery.ui.core.min.js"></script>
 <script src="system/assets/ui/jquery.ui.position.min.js"></script>
 <script src="system/assets/ui/jquery.ui.widget.min.js"></script>
+<script src="system/assets/ui/jquery.ui.menu.min.js"></script>
 <script src="system/assets/ui/jquery.ui.autocomplete.min.js"></script>
 <script src="system/assets/ui/jquery.ui.datepicker.min.js"></script>
 <script src="system/assets/ui/jquery.ui.dialog.min.js"></script>
@@ -47,6 +51,13 @@
   echo "settings.files_url=\"$base_url$files_dir\";"; 
   echo "settings.base_url=\"$base_url\";"; 
   echo "settings.q=\"$q\";"; 
+  echo "settings.user=new Object();";
+  if (isset($user)) {
+    echo "settings.user.id=\"$user->id\";";
+    echo "settings.user.vorname=\"$user->vorname\";";
+    echo "settings.user.name=\"$user->name\";";
+  }
+  echo 'version='.$config["version"];
   
 ?></script>
 <script src="<?php echo createI18nFile("churchcore"); ?>"></script>
@@ -59,10 +70,10 @@
     <?php echo $add_header; ?>
 </head>
 
-<body>
-
    <?php if (!$embedded) {?>
+    <body>
 
+   
     <div class="navbar navbar-fixed-top <?php if (!isset($_SESSION["simulate"])) echo "navbar-inverse" ?>">
       <div class="navbar-inner">
         <div class="container-fluid">
@@ -71,7 +82,10 @@
             <span class="icon-bar"></span>
             <span class="icon-bar"></span>
           </a>
-          <a class="brand" href="?q=home"><?php echo $config["site_name"].(isset($config["test"])?" TEST ":"") ?></a>
+          <a class="brand" href=".">
+            <?php if (isset($config["site_logo"]) && $config["site_logo"]!="") echo '<img src="'.$files_dir."/files/logo/".$config["site_logo"].'" style="max-width:100px;max-height:32px;margin:-10px 4px -8px 0px"/>' ?>
+            <?php echo $config["site_name"].(isset($config["test"])?" TEST ":"") ?>
+          </a>
 
             <?php if (userLoggedIn()) { ?>
               <div class="btn-group pull-right">
@@ -121,7 +135,7 @@
                       echo '<li class="divider"></li>';
                     }                  
                     ?>   
-                  <li><a href="?q=about"><?php echo t('about.churchtools'); ?></a></li>
+                  <li><a href="?q=about"><?php echo t('about')." ".$config['site_name']; ?></a></li>
                   <li class="divider"></li>
                   <li><a href="?q=logout"><?php echo t('logout');?></a></li>
                 </ul>
@@ -131,13 +145,22 @@
                  <li class="active"><p><div id="cdb_status" style="color:#999"></div></li>
                </ul>
              </div>
-            <?php } ?>
+            <?php } 
+            else { ?>
+             <div class="pull-right">
+               <ul class="nav">
+                  <?php echo '<li ';
+                        if ($q=="login") echo ' class="active"'; 
+                        echo '><a href="?q=login"><i class="icon-user icon-white"></i> '.t("login").'</a></li>';
+	               ?>
+               </ul>
+             </div>
+             <?php } ?>
               <div class="nav-collapse">
                 <ul class="nav">
-                  <?php   
+                  <?php
                     $arr=churchcore_getModulesSorted();
                     foreach ($arr as $key) {
-                      include_once("system/".$mapping[$key]);
                       if ((isset($config[$key."_name"])) && (isset($config[$key."_inmenu"])) && ($config[$key."_inmenu"]=="1") 
                              && ((user_access("view", $key)) || (in_array($key,$mapping["page_with_noauth"])))) {
                         echo "<li ";
@@ -158,8 +181,10 @@
     </div>    
     <div class="container-fluid" id="page">
   <?php 
-    } else     
-    echo '<div>';
+    } else {
+      echo '<body style="background:none">';    
+      echo '<div>';
+    }
     if ((isset($config["site_offline"]) && ($config["site_offline"]==1))) {   
       echo '<div class="alert alert-info">'.t("offline.mode.is.active").'</div>';
     } 

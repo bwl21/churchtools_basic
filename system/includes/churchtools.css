@@ -2,12 +2,20 @@
   margin-bottom: 13px;
 }	
 
+.hoverreactor {
+  display:none;
+}
+
 input.withoutmargin {
   margin:0
 }
   
 span.error {
   color:red;	
+}  
+  
+div.ui-datepicker {
+  min-width:15.1em;	
 }  
   
 a.ui-state-checkin {
@@ -23,6 +31,19 @@ p small {
 	color:#999;
 }
 
+span.label a {
+  color:white;
+}
+
+.ct-dialog-content{
+	position: relative;
+	border: 0;
+	padding: .5em 1em;
+	background: none;
+	overflow: auto;
+}
+
+
 .input-xmini {
   width: 40px;
 }
@@ -36,11 +57,11 @@ div.filelist {
   margin-bottom:10px;	
 }
 
-th.active, td.active {
+th.active, td.active, td.editmode {
 	background-color: #F2F4F6 !important;
 }
 
-td.editable {
+td.editable, td.clickable {
   cursor:pointer; 
 }
 
@@ -213,6 +234,12 @@ div.tooltip_address {
 .table-condensed2 th,
 .table-condensed2 td {
   padding: 1px 5px 0px;
+}
+
+.table-mini th,
+.table-mini td {
+  font-size:85%;
+  padding: 1px 3px 0px;
 }
 
 #cdb_content table {
@@ -459,4 +486,15 @@ span.tag {
   bottom: 270px;
 }
 
+.event-date {
+  font-size:85%;	
+  color:#999;
+}
 
+.event-category:before{content:" (";}  	
+.event-category:after{content:")";}  	
+
+.event-description {
+  font-size:85%;	
+  color:#999;
+}

@@ -1,7 +1,7 @@
  
 // Constructor
-function ListView() {
-  StandardTableView.call(this);
+function ListView(options) {
+  StandardTableView.call(this, options);
   this.name="ListView";
   this.sortVariable="startdate";
 //  this.filter["searchFuture"]=true;
@@ -10,6 +10,7 @@ function ListView() {
   this.allDataLoaded=false;
   this.renderTimer=null;
   this.serviceGroupPersonWeight=null;
+  this.availableRowCounts=[3,10,25];
 }
 
 Temp.prototype = StandardTableView.prototype;
@@ -44,6 +45,7 @@ ListView.prototype.renderMenu = function() {
   if (masterData.auth.admin)  
     menu.addEntry(_("maintain.masterdata"), "maintain-masterdata", "cog");
 
+  menu.addEntry(_("printview"), "aprintview", "print");
   menu.addEntry(_("help"), "ahelp", "question-sign");
 
   if (!menu.renderDiv("cdb_menu",churchcore_handyformat()))
@@ -58,6 +60,14 @@ ListView.prototype.renderMenu = function() {
       }
       else if ($(this).attr("id")=="workload") {
         this_object.showAuslastung(); 
+      }
+      else if ($(this).attr("id")=="aprintview") {
+        var filter='&date='+t.currentDate.toStringEn(false);
+        if (this_object.filter["filterMeine Filter"]!=null)
+          filter=filter+"&meineFilter="+this_object.filter["filterMeine Filter"];
+        fenster = window.open('?q=churchservice/printview'+filter+'#ListView', "Druckansicht", "width=900,height=600,resizable=yes");
+        fenster.focus();
+        return false;
       }
       else if ($(this).attr("id")=="aaddfilter") {
         if (!this_object.furtherFilterVisible) {
@@ -92,13 +102,16 @@ ListView.prototype.renderMenu = function() {
 };
 
 ListView.prototype.renderListMenu = function() {
+  var this_object=this;
   
   var navi = new CC_Navi();
-  navi.addEntry(churchInterface.isCurrentView("ListView"),"alistview","Listenansicht");
+  navi.addEntry(churchInterface.isCurrentView("ListView"),"alistview","Dienstplan");
   if (masterData.auth.manageabsent)
     navi.addEntry(churchInterface.isCurrentView("CalView"),"acalview","Abwesenheiten");
   if (masterData.auth.viewfacts)
     navi.addEntry(churchInterface.isCurrentView("FactView"),"afactview","Fakten");
+  if (allAgendas!=null || user_access("view agenda"))
+    navi.addEntry(churchInterface.isCurrentView("AgendaView"),"aagendaview","Abläufe");
   if (masterData.auth.viewsong)
     navi.addEntry(churchInterface.isCurrentView("SongView"),"asongview","Songs");
   
@@ -119,6 +132,9 @@ ListView.prototype.renderListMenu = function() {
       factView.furtherFilterVisible=this_object.furtherFilterVisible;
       factView.currentDate=this_object.currentDate;
       churchInterface.setCurrentView(factView);
+    }
+    else if ($(this).attr("id")=="aagendaview") {
+      churchInterface.setCurrentView(agendaView);
     }
     else if ($(this).attr("id")=="asongview") {
       churchInterface.setCurrentView(songView);
@@ -315,14 +331,16 @@ ListView.prototype.saveEditEvent = function (elem) {
   elem.html("<p>");
   
 
-  // Speichere Daten f�r das asyncrone Speichern
+  // Save Data for sending it asynchron 
   _array=new Array();
   var d=obj.startdate.toDateEn(true);
+  var e=obj.enddate.toDateEn(true);
   while (d<wiederholungbis) {
     _array.push(jQuery.extend({}, obj));
-    // Nun eine Woche draufz�hlen
-    d.addDays(7);
+    // Add one week
+    d.addDays(7); e.addDays(7);
     obj.startdate=d.toStringEn(true);
+    obj.enddate=e.toStringEn(true);
   }
   var i=0;
   
@@ -351,6 +369,7 @@ ListView.prototype.saveEditEvent = function (elem) {
 };
 
 ListView.prototype.renderEditEvent = function(event) {
+  var t=this;
   var rows=new Array();
   var template=null;
   
@@ -482,7 +501,7 @@ ListView.prototype.renderEditEvent = function(event) {
 
   
   
-  rows.push('<tr><td>Kalender<td>'+this.renderSelect(event.category_id, "category", masterData.category));
+  rows.push('<tr><td>Kalender<td>'+this.renderSelect(event.category_id, "category", t.prepareCategoriesForSelect()));
   rows.push('<tr><td>'+this.renderInput("InputBezeichnung", "Bezeichnung", event.bezeichnung, 20));
   rows.push('<tr><td>'+this.renderTextarea("InputSpecial", "Weitere Infos", event.special, 20,3));
   rows.push('<tr><td>'+this.renderInput("InputAdmin", "Event-Admin", event.admin, 20, !masterData.auth.admin));
@@ -490,10 +509,12 @@ ListView.prototype.renderEditEvent = function(event) {
   if ((event.admin!=null) && (event.admin!="") && (masterData.auth.viewchurchdb)) {
     churchInterface.jsendRead({func:"getPersonById", id:event.admin}, function(ok, json) {
       var s = "";
-      $.each(json.data, function(k,a) {
-        if (s!="") s=s+"<br/>";
-        s=s+a.vorname+" "+a.name;
-      });
+      if (json.data!=null) {
+        $.each(json.data, function(k,a) {
+          if (s!="") s=s+"<br/>";
+          s=s+a.vorname+" "+a.name;
+        });
+      }
       $("#adminName").html(s);
     }, null, null, "churchdb"); 
   }
@@ -569,12 +590,16 @@ ListView.prototype.renderEditEvent = function(event) {
 
   var this_object=this;
 
-  var elem = this.showDialog("Ver&auml;nderung des Events", rows.join(""), (event.id==null?680:450), (event.id==null?600:500), {
+  var elem = this.showDialog("Veränderung des Events", rows.join(""), (event.id==null?680:450), (event.id==null?600:500), {
     "Speichern": function() {
-      this_object.saveEditEvent(elem);
-      // Wenn es neu ist, dann soll das Datum gesetzt werden, damit der neue Eintrag sichtbar wird.
-      if (event.id==null) {
-        this_object.currentDate=event.startdate.toDateEn(false);
+      if ($("#Inputcategory").val()<0) alert("Bitte einen Kalender auswählen!");
+      else if ($("#InputBezeichnung").val()=="") alert("Bitte eine Bezeichnung angeben!");
+      else {
+        this_object.saveEditEvent(elem);
+        // Wenn es neu ist, dann soll das Datum gesetzt werden, damit der neue Eintrag sichtbar wird.
+        if (event.id==null) {
+          this_object.currentDate=event.startdate.toDateEn(false);
+        }
       }
     }
   });
@@ -585,13 +610,13 @@ ListView.prototype.renderEditEvent = function(event) {
 
   $("#saveTemplate").click(function() {
     var res=prompt("Bitte den Namen der Vorlage angeben:",template.bezeichnung);
-    if (res!=null)
+    if (res!=null && res!="")
       this_object.saveEventAsTemplate(_getEditEventFromForm(), res, function(template_id) {
         masterData.settings.aktuelleEventvorlage=template_id;
         elem.dialog("close");
         this_object.renderEditEvent(event);        
       });
-    
+    return false;
   });
   $("#deleteTemplate").click(function() {
     if (confirm("Soll die Vorlage "+template.bezeichnung+" wirklich entfernt werden?")) {
@@ -668,23 +693,32 @@ ListView.prototype.renderEditEvent = function(event) {
     
   
   if (event.id!=null) {
-    elem.dialog('addbutton', 'Entfernen', function() {
-      if (confirm("Soll das gesamte Event wirklich entfernt werden?")) {
-        obj=new Object();
-        obj.func="deleteEvent";
-        obj.id=event.id;       
-        churchInterface.jsendWrite(obj, function(ok, json) {
-          if (json!="ok") alert("Fehler beim Speichern: "+json);
-          else {
-            delete allEvents[event.id];
-            elem.dialog("close");
-            this_object.renderList();
-          }
-        });  
+    elem.dialog('addbutton', 'Event absagen', function() {
+      var form = new CC_Form();
+      form.addCheckbox({cssid:"informDeleteEvent", label:"Alle angefragten Personen über die Absage informieren?", checked:true});
+      form.addCheckbox({cssid:"deleteCalEntry", label:"Auch Kalendereintrag entfernen (wird bei Wiederholungsterminen ignoriert!)"});
+      var elem2 = form_showDialog("Absagen des Events", form.render(null, "vertical"), 300, 300, {
+        "Absagen": function() {    
+          obj=form.getAllValsAsObject();
+          obj.func="deleteEvent";
+          obj.id=event.id;       
+          churchInterface.jsendWrite(obj, function(ok, json) {
+            if (!ok) alert("Fehler beim Speichern: "+json);
+            else {
+              delete allEvents[event.id];
+              elem2.dialog("close");
+              elem.dialog("close");
+              this_object.renderList();
+            }
+          });  
+        },
+      "Abbrechen": function() {
+        elem2.dialog("close");      
       }
+      });
     });
   }
-  elem.dialog('addbutton',"Abbruch", function() {
+  elem.dialog('addbutton',"Abbrechen", function() {
     $(this).dialog("close");
   });
 
@@ -739,19 +773,47 @@ ListView.prototype.getMemberOfOneGroup = function(g_ids, user_pid) {
 };
 
 /**
+ * Checks if the service has no tag or if, then the person has the same tag
+ * @param user_pid
+ * @param service
+ * @returns {Boolean}
+ */
+ListView.prototype.checkPersonHasOneTagFromService = function (user_pid, service) {
+  // No tag, so it is ok for me
+  if (service.cdb_tag_ids==null) return true;
+  var tag_ids=service.cdb_tag_ids.split(",");
+  var ok=false;
+  $.each(service.cdb_gruppen_ids.split(","), function(k,g) {
+    if (groups!=null && groups[g]!=null) {
+      $.each(groups[g], function(i,b) {
+        if ((b.p_id==user_pid) && (_checkPersonTag(tag_ids, b.tags))) {
+          ok=true;
+          return false;
+        }
+      });
+    }
+  });  
+  return ok;
+};
+
+/**
  * 
  * @param event - Das Event
  * @param services - Der konkrete Dienst aus dem Objekt Event
  * @return Html-Code
  */
 ListView.prototype.renderEventServiceEntry = function(event_id, services, bin_ich_admin) {
+  var t=this;
+  
   if ((services.valid_yn==1) && (masterData.service[services.service_id]!=null)) {
     var rows = new Array();
     rows.push("<p style=\"line-height:1.0;margin-bottom:4px;\">");
     var edit=false;
+    var service=masterData.service[services.service_id];
     var isMemberOfGroup=masterData.auth.memberservice[services.service_id]==true;
     var isLeaderOfOneGroup=masterData.auth.leaderservice[services.service_id]==true;
-    // Pr�fe ob ich die Rechte habe zu editieren.
+    
+    // Check the permission to edit:
     // 1. Drupal-Rechte durch EditGroup
     // 2. Wenn die Gruppe eine PersonenId hat und ich selber die Person bin
     // 3. Noch keiner eingetragen hat und ich in einer der Gruppen bin
@@ -759,19 +821,19 @@ ListView.prototype.renderEventServiceEntry = function(event_id, services, bin_ic
     // 5. Wenn ich Admin des Events bin
     if ((masterData.auth.editservice[services.service_id]) ||
           ((services.cdb_person_id!=null) && (services.cdb_person_id==masterData.user_pid)) ||
-          ((services.name==null) && (isMemberOfGroup)) ||
+          ((services.name==null) && (isMemberOfGroup && t.checkPersonHasOneTagFromService(masterData.user_pid, service))) ||
           ((isLeaderOfOneGroup)) ||
           ((bin_ich_admin)))
       edit=true;
- // TEST   
+  
     var seeHistory=isLeaderOfOneGroup || (masterData.auth.editservice[services.service_id]) || bin_ich_admin;
-    var tooltip='tooltip="'+event_id+"_"+services.id+'" '+(seeHistory?"history=true":"")+' '+(isMemberOfGroup?"member=true":""+' ');
+    var tooltip='data-tooltip-id="'+event_id+"_"+services.id+'" '+(seeHistory?"history=true":"")+' '+(isMemberOfGroup?"member=true":""+' ');
     
     rows.push('<small>');
     if (edit) 
-      rows.push('<a href="#" '+tooltip+' id="edit_es_'+event_id+'" eventservice_id="'+services.id+'" style="text-decoration:none">');
+      rows.push('<a href="#" class="tooltips" '+tooltip+' id="edit_es_'+event_id+'" eventservice_id="'+services.id+'" style="text-decoration:none">');
     else 
-      rows.push('<span '+tooltip+'>');
+      rows.push('<span class="tooltips" '+tooltip+'>');
     _class='';
     if ((services.cdb_person_id!=null) && (services.cdb_person_id==masterData.user_pid))
       if (services.zugesagt_yn==1)
@@ -781,7 +843,7 @@ ListView.prototype.renderEventServiceEntry = function(event_id, services, bin_ic
  
     if ((this.filter["filterDienstgruppen"]==null) || 
          ((masterData.settings.listViewTableHeight!=null) && (masterData.settings.listViewTableHeight==0))) {
-      rows.push('<font class="'+_class+'"><b>'+masterData.service[services.service_id].bezeichnung);
+      rows.push('<font class="'+_class+'"><b>'+service.bezeichnung);
       if (services.counter!=null) rows.push(" "+services.counter);      
         rows.push(': </b></font>');
     }
@@ -797,7 +859,7 @@ ListView.prototype.renderEventServiceEntry = function(event_id, services, bin_ic
     rows.push('<font class="'+_class+'" style="'+style+'">');
     
     var name=services.name;
-    if ((masterData.service[services.service_id].cdb_gruppen_ids!=null) && (services.name==null))
+    if ((service.cdb_gruppen_ids!=null) && (services.name==null))
       name=services.cdb_person_id;
   
     if (name!=null) rows.push(name.trim(18));
@@ -843,7 +905,11 @@ ListView.prototype.getAdditionalServicesToServicegroup = function (event, sg_id,
   this_object=this;
   var choseable = new Array();
   $.each(masterData.service_sorted, function(k,a) {
-    if ((a.servicegroup_id==sg_id) && ((masterData.auth.write) || (masterData.auth.leaderservice[a.id]) || (bin_ich_admin))) {      
+    if ((a.servicegroup_id==sg_id) && (
+          (masterData.auth.write)
+          || ((masterData.auth.editgroup!=null && masterData.auth.editgroup[sg_id]))
+          || (masterData.auth.leaderservice[a.id]) 
+          || (bin_ich_admin))) {      
       if ((masterData.auth.editgroup[sg_id]) || (this_object.isLeaderOfServiceGroup(sg_id)) || (bin_ich_admin)) {
         var isdrin=0;
         var isfrei=true;
@@ -891,18 +957,25 @@ ListView.prototype.renderListEntry = function(event) {
   var width=100/(this.getCountCols()-1);
 
   if (masterData.category[event.category_id].color!=null)
-  rows.push('<div title="Kalender: '+masterData.category[event.category_id].bezeichnung+'" style="background-color:'+masterData.category[event.category_id].color+'; margin-top:5px; margin-left:3px; width:4px; height:15px"></div>');
-  rows.push('<td>');
+    rows.push('<div title="Kalender: '+masterData.category[event.category_id].bezeichnung+'" style="background-color:'+masterData.category[event.category_id].color+'; margin-top:5px; margin-left:3px; width:4px; height:15px"></div>');
+  rows.push('<td class="hoveractor">');
+
+  var agendaview=event.agenda && (user_access("view agenda", event.category_id) || t.amIInvolved(event));
+  if (agendaview)
+    rows.push('<b><a href="#" id="detail'+event.id+'">' + event.startdate.toDateEn(true).toStringDeTime() + " "+event.bezeichnung+"</a></b>&nbsp; ");
+  else
+    rows.push("<b>" + event.startdate.toDateEn(true).toStringDeTime(true)+" "+event.bezeichnung+"</b>&nbsp; ");
   
   if (masterData.auth.write)
-    rows.push("<b><a href=\"#\" id=\"editEvent" + event.id + "\">" + event.startdate.toDateEn(true).toStringDeTime() + " "+event.bezeichnung+"</a></b><br/>");
-  else
-    rows.push("<b>" + event.startdate.toDateEn(true).toStringDeTime(true)+" "+event.bezeichnung+"</b><br/>");
+    rows.push(form_renderImage({src:"options.png", hover:true, width:18, htmlclass:"edit-event", label:"Editieren", link:true}));
+
+  rows.push("<br/>");
+
   if ((event.special!=null) && (event.special!=""))
     rows.push("<div class=\"event_info\">"+event.special.htmlize()+"</div>");
   
   var _authMerker=masterData.auth.write || _bin_ich_admin;
-  // Pr�fe, ob ich ein Leiter einer Gruppe bin, dann darf ich auch schreiben.
+  // Check if I am a leader of the group
   if (!_authMerker)
     $.each(masterData.service, function(k,a) {
       if (masterData.auth.leaderservice[a.id]) {
@@ -912,7 +985,7 @@ ListView.prototype.renderListEntry = function(event) {
       }
     });
   if (_authMerker) rows.push("<a href=\"#\" id=\"editNote" + event.id + "\" title=\"Editiere 'Weitere Infos'\">" +this.renderImage("info")+"</a>&nbsp;");
-  // Pr�fe ob ich irgendwo eingetragen bin, dann darf ich zumindest Dateien hochladen
+  // Check if I am in one of the services, so I am allowed to uplaod files
   if ((!_authMerker) && (event.services!=null)) {
     $.each(event.services, function(k,a) {
       if ((a.valid_yn==1) && (masterData.user_pid==a.cdb_person_id)) {
@@ -923,25 +996,29 @@ ListView.prototype.renderListEntry = function(event) {
   }
   
   if (_authMerker) rows.push("<a href=\"#\" id=\"attachFile" + event.id + "\" title=\"Datei zum Event anh&auml;ngen\">" +this.renderImage("paperclip")+"</a>&nbsp;");
-    
-  rows.push("<a href=\"#\" id=\"mailEvent" + event.id + "\" title=\"Erstelle E-Mail an Personen des Events\">" +this.renderImage("email")+"</a>&nbsp;");
+
+  if (event.services!=null)
+    rows.push("<a href=\"#\" id=\"mailEvent" + event.id + "\" title=\"Erstelle E-Mail an Personen des Events\">" +this.renderImage("email")+"</a>&nbsp;");
   if (event.admin!=null)
     if (_bin_ich_admin) 
       rows.push("<a href=\"#\" id=\"filterMyAdmin" + event.id + "\" title=\"Du bist Admin!\">" +this.renderImage("person")+"</a>&nbsp;");
     else
-      rows.push(this.renderImage("person_sw",null,"Das Event hat einen Admin."));
+      rows.push(this.renderImage("person_sw",null,"Das Event hat einen Admin.")+"&nbsp;");
   
+  if (!event.agenda && user_access("edit agenda", event.category_id))
+    rows.push(form_renderImage({src:"agenda_plus.png", htmlclass:"show-agenda", link:true, label:"Ablaufplan zum Event hinzufügen", width:20}));
+  else if (agendaview)
+    rows.push(form_renderImage({src:"agenda.png", htmlclass:"show-agenda", link:true, label:"Ablaufplan anzeigen", width:20}));
   
   rows.push('<div class="filelist" data-id="'+event.id+'"></div>');
     
-//  rows.push("&nbsp;<a href=\"#\" id=\"editNote" + event.id + "\">" +this.renderImage("comment")+"</a>");
-  
+  // When no filterDienstgruppe is selected, it show all Services, sorted by ServiceGroup
   if (this.filter["filterDienstgruppen"]==null) {
     $.each(this.sortMasterData(masterData.servicegroup, "sortkey"), function(k,sg) {
       var is_leader=false;
       if ((masterData.settings["viewgroup"+sg.id]==null) || (masterData.settings["viewgroup"+sg.id]==1)) {
         if ((masterData.auth.viewgroup[sg.id]) || (this_object.filter["filterMeine Filter"]==2)) {
-          rows.push('<td valign="top" class="service" data-servicegroup-id="'+sg.id+'" style="position:relative" width="'+width+'%">');
+          rows.push('<td valign="top" class="service hoveractor" data-servicegroup-id="'+sg.id+'" style="position:relative" width="'+width+'%">');
           $.each(masterData.service_sorted, function(i,s) {
             if (sg.id==s.servicegroup_id) {
               if (masterData.auth.leaderservice[s.id]==true) is_leader=true;
@@ -958,10 +1035,13 @@ ListView.prototype.renderListEntry = function(event) {
               }  
             }      
           });
-          // Anzeige der "+"-Zeichen f�r weitere Dienste einf�gen
-          if (masterData.auth.write || _bin_ich_admin || is_leader) {
-//            rows.push('<p style="position:absolute;bottom:-2px;right:7px;"><a href="#" id="addService" event_id="'+event.id+'" servicegroup_id="'+sg.id+'">'+this_object.renderImage("options",14)+'</a>');
-            rows.push('<p><a href="#" id="addService" event_id="'+event.id+'" servicegroup_id="'+sg.id+'">+</a>');
+          // Show "+" to add furhter Services
+          if (masterData.auth.write 
+                  || (masterData.auth.editgroup!=null && masterData.auth.editgroup[sg.id]) 
+                  || _bin_ich_admin 
+                  || is_leader) {
+//            rows.push('<p><a href="#" id="addService" event_id="'+event.id+'" servicegroup_id="'+sg.id+'">'+form_renderImage({hover:true, src:"options.png", width:16})+'</a>');
+            rows.push('<p>'+form_renderImage({hover:true, htmlclass:"edit-service", src:"options.png", width:16, data:[{name:"servicegroup-id", value:sg.id}, {name:"event-id", value:event.id}], link:true}));
             _soll_zeigen=true;
           }
         }
@@ -991,9 +1071,38 @@ ListView.prototype.renderListEntry = function(event) {
 };
 
 
+ListView.prototype.prepareCategoriesForSelect = function(multiselect) {
+  var data=new Object();
+  if (multiselect==null) multiselect=false;
+  var sortkey=1;
+  $.each(churchcore_sortMasterData(masterData.category), function(k,c) {
+    if (c.privat_yn==0 && c.oeffentlich_yn==0) {
+      form_addEntryToSelectArray(data, c.id, c.bezeichnung, sortkey);
+      sortkey++;
+    }
+  });
+  if (churchcore_countObjectElements(data)>0) {
+    if (multiselect) 
+      form_addEntryToSelectArray(data, -1 , '-', sortkey);
+    else {
+      form_addEntryToSelectArray(data, -2 , '== Gruppenkalender ==', 0);
+      form_addEntryToSelectArray(data, -1 , '== Gemeindekalender == ', sortkey);
+    }
+    sortkey++;
+  }
+  $.each(churchcore_sortMasterData(masterData.category), function(k,c) {
+    if (c.privat_yn==0 && c.oeffentlich_yn==1) {
+      form_addEntryToSelectArray(data, c.id, c.bezeichnung, sortkey);
+      sortkey++;
+    }
+  });
+  return data;
+};
+
 ListView.prototype.makeFilterCategories = function(start_string) {
   var t=this;
-  t.filter["filterKategorien"]=new CC_MultiSelect(masterData.category, function(id, selected) {
+  
+  t.filter["filterKategorien"]=new CC_MultiSelect(t.prepareCategoriesForSelect(true), function(id, selected) {
     masterData.settings.filterCategory=this.getSelectedAsArrayString();
     churchInterface.jsendWrite({func:"saveSetting", sub:"filterCategory", val:masterData.settings.filterCategory});
     t.renderList();
@@ -1005,8 +1114,19 @@ ListView.prototype.makeFilterCategories = function(start_string) {
 ListView.prototype.getListHeader = function() {
   var this_object=this;
   $("#cdb_group").html("");
+  currentTooltip=null;
+  
+  if (masterData.settings.listMaxRowsListView>25)
+    masterData.settings.listMaxRowsListView=25;
 
   if (masterData.settings.listViewTableHeight==null) masterData.settings.listViewTableHeight=1;
+  if ($("#printview").val()!=null)
+    masterData.settings.listViewTableHeight=null;
+
+  if ($("#externmeineFilter").val()!=null) {
+    this.filter["filterMeine Filter"]=$("#externmeineFilter").val();
+    $("#externmeineFilter").remove();
+  }
   
   if ((masterData.settings.filterCategory=="") || (masterData.settings.filterCategory==null)
       || ($("#externevent_id").val()!=null))
@@ -1014,8 +1134,8 @@ ListView.prototype.getListHeader = function() {
   if (this.filter["filterKategorien"]==null) {
     this_object.makeFilterCategories(masterData.settings.filterCategory);
     this.filter["filterKategorien"].setSelectedAsArrayString(masterData.settings.filterCategory);
+    this.filter["filterKategorien"].render2Div("filterKategorien", {label:"Kalender"});
   }
-  this.filter["filterKategorien"].render2Div("filterKategorien", {label:"Kalender"});
 
 /*  if ((masterData.settings.filterMeineFilter=="") || (masterData.settings.filterMeineFilter==null))
     masterData.settings.filterMeineFilter=null;
@@ -1030,8 +1150,8 @@ ListView.prototype.getListHeader = function() {
     $.each(this.sortMasterData(masterData.servicegroup), function(k,a) {
       if ((masterData.settings["viewgroup"+a.id]==null) || (masterData.settings["viewgroup"+a.id]==1))
         if ((masterData.auth.viewgroup[a.id]) || (this_object.filter["filterMeine Filter"]==2)) {
-          tableHeader=tableHeader+'<th class="hover" id="header'+a.id+'">'+a.bezeichnung
-          tableHeader=tableHeader+'<span id="headerspan'+a.id+'" style="display:none;float:right">'+
+          tableHeader=tableHeader+'<th class="hoveractor" id="header'+a.id+'">'+a.bezeichnung;
+          tableHeader=tableHeader+'<span id="headerspan'+a.id+'" class="hoverreactor pull-right" >'+
                   '<a href="#" id="delCol'+a.id+'">'+this_object.renderImage("minus",16)+'</a></span>';
         }
     });
@@ -1175,8 +1295,10 @@ function _checkPersonTag(tag_ids, tags) {
   else {
     $.each(tag_ids, function(i,c) {
       if ((tags!=null)) {
-        if (churchcore_inObject(c,tags)) 
+        if (churchcore_inObject(c,tags)) {
           tag_dabei=true;
+          return false;
+        }
       }
     });
   }
@@ -1205,14 +1327,11 @@ ListView.prototype.getAllPersonsForService = function(service_id) {
   $.each(gruppen_ids.split(","), function(k,g) {
     if (groups[g]!=null) {
       $.each(groups[g], function(i,b) {
-        if (_checkPersonTag(tag_ids, b.tags)) {            
-          // nur die erste Gruppe nehmen
-          if (persons[b.p_id]==null) {
-            var o = new Object();
-            o.id=b.p_id;
-            o.bezeichnung=b.vorname+" "+b.name;
-            persons[o.id]=o;
-          }
+        if (_checkPersonTag(tag_ids, b.tags)) {
+          var o = new Object();
+          o.id=b.p_id;
+          o.bezeichnung=b.vorname+" "+b.name;
+          persons[o.id]=o;
         }
       });
     }
@@ -1511,7 +1630,7 @@ ListView.prototype.renderEditEventService = function(event_id, eventservice_id, 
   
   var elem = form_showCancelDialog("Anfrage "+
        masterData.servicegroup[masterData.service[service_id].servicegroup_id].bezeichnung+
-       " f&uuml;r den "+allEvents[event_id].startdate.toDateEn(true).toStringDe(true), 
+       " für den "+allEvents[event_id].startdate.toDateEn(true).toStringDe(true), 
       rows.join(""), 550,450);
 
   
@@ -1625,8 +1744,8 @@ ListView.prototype.renderEditEventService = function(event_id, eventservice_id, 
             if (res==null) return null;
             obj.reason=res;
           }
-          obj.name=null;
-          obj.cdb_person_id=null;
+          delete obj.name;
+          delete obj.cdb_person_id;
           obj.zugesagt_yn=0;
         }
         elem.html("<p><br/><b>Daten werden gespeichert...</b><br/><br/>");
@@ -1934,78 +2053,99 @@ ListView.prototype.getEventService = function(event_id, eventservice_id) {
   return _eventservice;
 };
 
-ListView.prototype.renderTooltip = function(elem) {
-  var id=elem.attr("tooltip");
-  var event_id=elem.parents("tr").attr("id");
+ListView.prototype.renderTooltip = function(id, event_id, withLastDates, withHistory) {
+  var eventservice_id=id.substr(id.indexOf("_")+1,99);
+  var txt="";
+  var a = this.getEventService(event_id, eventservice_id);
   var _bin_ich_admin=bin_ich_admin(allEvents[event_id].admin);
-  
-  if (elem.hasClass("file")) {
-    return this.renderTooltipForFiles(elem, null, allEvents[event_id].files[id], 
-         ((masterData.auth.admin) || (masterData.auth.leaderservice[a.service_id]) || (_bin_ich_admin)));
+  var _editor=(masterData.auth.admin) || (masterData.auth.editservice[a.service_id]) || (masterData.auth.leaderservice[a.service_id]) || (_bin_ich_admin);
+  if (a.name!=null) {
+    txt="<h4>"+a.name;
+    txt=txt+"</h4>";
   }
-  else {
   
-//    var event_id=id.substr(0,id.indexOf("_"));
-    var eventservice_id=id.substr(id.indexOf("_")+1,99);
-    
-      var txt="";
-      var a = this.getEventService(event_id, eventservice_id);
-      if (a.name!=null)
-        txt="<h4>"+a.name+"</h4>";
-    
-      var info=false;
-      if (masterData.service[a.service_id].cdb_gruppen_ids!=null) {
-        var info=this_object.getMemberOfOneGroup(masterData.service[a.service_id].cdb_gruppen_ids, [a.cdb_person_id]);
-      }
-    
-      if (elem.attr("member")!=null) {
-        if (a.zugesagt_yn==1)
-          txt=txt+"<font style=\"color:green\">Zusage am "+a.datum.toDateEn().toStringDe()+"</font>";
-        else if (a.name!=null) 
-          txt=txt+"<font style=\"color:red\">Anfrage vom "+a.datum.toDateEn().toStringDe()+"</font>";
-        else
-          txt=txt+"<font style=\"color:red\">Offen seit "+a.datum.toDateEn().toStringDe()+"</font>";
-        if (a.mailsenddate!=null)
-          txt=txt+'&nbsp;<span title="Letzte Erinnerung gesendet am '+a.mailsenddate.toDateEn(true).toStringDe(true)+'">'+this_object.renderImage("email",12)+'</span>';
-        txt=txt+'<br/>';
-      }
-      //txt=txt+"</div>";
-      if (info!=false) {
-        if (info.imageurl!=null)
-          txt='<div style="float:right">&nbsp;<img src="'+masterData.files_url+"/fotos/"+info.imageurl+'" style="max-width:70px" width="70"></div>'+txt;
-      }
-      var _cdb_person_id = this.getEventService(event_id, eventservice_id).cdb_person_id;
-      if ((masterData.auth.admin) || (masterData.auth.leaderservice[a.service_id]) || (_bin_ich_admin)) {
-        var t2=this.renderPersonAuslastung(_cdb_person_id, event_id, a.service_id);
-        if (t2!="")
-          txt=txt+"Auslastung: "+t2;
-      }
-      if (txt!="") {
-        txt='<div>'+txt+"</div>";
-        txt=txt+'<div style="clear:both"></div>';  
-      }
-    
-    
-    if ((elem.attr("history")) || (masterData.auth.viewhistory) || (_bin_ich_admin))
-      txt=txt+"<p>"+this.renderEntryHistory(event_id, a.service_id, a.counter, null, (masterData.auth.leaderservice[a.service_id]) || (masterData.auth.admin) || (_bin_ich_admin), true);
-  
-    if (txt!="") {
-      var title=masterData.service[a.service_id].bezeichnung;
-      if (masterData.service[a.service_id].notiz!="")
-        title=title+' <small> ('+masterData.service[a.service_id].notiz+")</small></p>";
-      return [txt,title];
+  var info=false;
+  if (masterData.service[a.service_id].cdb_gruppen_ids!=null) {
+    var info=this_object.getMemberOfOneGroup(masterData.service[a.service_id].cdb_gruppen_ids, [a.cdb_person_id]);
+  }
+
+  if (withLastDates) {
+    if (a.zugesagt_yn==1)
+      txt=txt+"<font style=\"color:green\">Zusage am "+a.datum.toDateEn().toStringDe()+"</font>";
+    else if (a.name!=null) 
+      txt=txt+"<font style=\"color:red\">Anfrage vom "+a.datum.toDateEn().toStringDe()+"</font>";
+    else
+      txt=txt+"<font style=\"color:red\">Offen seit "+a.datum.toDateEn().toStringDe()+"</font>";
+    if (a.mailsenddate!=null)
+      txt=txt+'&nbsp;<span title="Letzte Erinnerung gesendet am '+a.mailsenddate.toDateEn(true).toStringDe(true)+'">'+form_renderImage({src:"email.png",width:12})+'</span>';
+    txt=txt+'<br/>';
+  }
+  //txt=txt+"</div>";
+  if (info!=false) {
+    if (info.imageurl!=null)
+      txt='<div style="float:right">&nbsp;<img src="'+masterData.files_url+"/fotos/"+info.imageurl+'" style="max-width:70px" width="70"></div>'+txt;
+  }
+  if (_editor) {
+    var t2=this.renderPersonAuslastung(a.cdb_person_id, event_id, a.service_id);
+    if (t2!="")
+      txt=txt+"Auslastung: "+t2;
+  }
+  if (a.cdb_person_id!=null) {
+    txt=txt+"<br/>";
+    var txt2="";
+    if (user_access("administer persons")) {
+      txt2=txt2+'<br/><a href="#" class="simulate-person" data-id="'+a.cdb_person_id+'">'
+            +form_renderImage({src:"person_simulate.png",label:"Person simulieren", width:18})+'&nbsp;Simulieren</a>';
+    }
+    if (info!=false && info.email!="") {
+      txt2=txt2+'<br/><a href="#" class="email-person" data-id="'+a.cdb_person_id+'">'
+            +form_renderImage({src:"email.png",label:"Person eine E-Mail senden", width:18})+"&nbsp;E-Mail senden</a>";
+    }
+    if (txt2!="") {
+      txt=txt+txt2;
     }
   }
+  
+  if (txt!="" || _editor) {
+    txt='<div>'+txt+"</div>";
+    txt=txt+'<div style="clear:both"></div>';  
+  }
+
+  
+  if ((withHistory) || (masterData.auth.viewhistory) || (_bin_ich_admin))
+    txt=txt+"<p>"+this.renderEntryHistory(event_id, a.service_id, a.counter, null, _editor, true);
+
+  if (txt!="") {
+    var title=masterData.service[a.service_id].bezeichnung;
+    if (_bin_ich_admin || masterData.auth.admin || (masterData.auth.editservice[a.service_id])) {
+      title='<a href="#" class="edit-service" data-id="'+a.service_id+'">'+title+'</a>';
+    }
     
+    if (masterData.service[a.service_id].notiz!="")
+      title=title+' <small> ('+masterData.service[a.service_id].notiz+")</small>";
+
+    if (_editor) {
+      var abonniert=false;
+      if (getNotification("service", a.service_id)!==false) {
+        abonniert=true;      
+      }
+      title=title+'&nbsp; <span class="label '+(abonniert?"label-info":"")+'">';
+      title=title+'<a href="#" class="edit-notification" data-domain-type="service" data-domain-id="'+a.service_id+'" '+'>'
+        +(abonniert?"abonniert":"abonnieren")+'</a></span>';
+    }
+    
+    txt='<div style="min-width:250px; max-width:300px;">'+txt+'</div>';
+    return [txt,title];
+  }
   return null;
 };
 
-ListView.prototype.tooltipCallback = function(id, tooltip) {
-  if (tooltip.find("#file").val()) { 
-    var event_id=tooltip.parents("tr.data").attr("id");
-    return this.tooltipCallbackForFiles(id, tooltip, allEvents, event_id);
-  }
-};
+function getNotification(domain_type, domain_id) {
+  if (masterData.notification[domain_type]==null) return false;
+  if (masterData.notification[domain_type][domain_id]==null) return false;
+  return masterData.notification[domain_type][domain_id];  
+}
+
 
 ListView.prototype.countActiveServices = function(event, service_id) {
   var count=0;
@@ -2051,9 +2191,10 @@ ListView.prototype.editService = function(service_id, sg_id) {
     }); 
   }
   else {
-    var form = new CC_Form((service_id!=null?"Service editieren":"Service erstellen"), arr);
+    var form = new CC_Form(null, arr);
     form.addInput({label:"Bezeichnung",cssid:"bezeichnung",required:true});
     form.addInput({label:"Notiz",cssid:"notiz",required:false});
+    form.addInput({label:"Ergänzung für Kalendertext", placeholder:"mit [Vorname]", cssid:"cal_text_template",required:false});
     form.addSelect({label:"Servicegruppe", cssid:"servicegroup_id", data:masterData.servicegroup, 
       func: function(o) {return (masterData.auth.editgroup!=null) && (masterData.auth.editgroup[o.id]!=null);}
     });
@@ -2063,9 +2204,11 @@ ListView.prototype.editService = function(service_id, sg_id) {
     form.addHtml('<div class="controls" id="gruppen">');
     form.addHtml('</div></div>');
     
-    form.addHtml('<div class="control-group"><label class="control-label">Tag-Zuordnungen</label>');
-    form.addHtml('<div class="controls" id="tags">');
-    form.addHtml('</div></div>');
+    if (masterData.tags!=null) {
+      form.addHtml('<div class="control-group"><label class="control-label">Tag-Zuordnungen</label>');
+      form.addHtml('<div class="controls" id="tags">');
+      form.addHtml('</div></div>');
+    }
     
     
     form.addCheckbox({controlgroup_start:true, label:"Sende Dienstanfragen per E-Mail", cssid:"sendremindermails_yn"});
@@ -2073,7 +2216,7 @@ ListView.prototype.editService = function(service_id, sg_id) {
     form.addInput({label:"Sortierungsnummer (sortkey)",cssid:"sortkey",required:true});
     form.addHtml('<p class="pull-right"><small>Id: '+service_id);
   
-    var elem = form_showDialog("Service editieren", form.render(false, "horizontal"), 600,580);
+    var elem = form_showDialog((service_id!=null?"Service editieren":"Service erstellen"), form.render(false, "horizontal"), 600,550);
     elem.dialog('addbutton', 'Speichern', function() {
       obj=form.getAllValsAsObject();
       obj.cdb_gruppen_ids=arr.gruppen.join(",");
@@ -2090,8 +2233,9 @@ ListView.prototype.editService = function(service_id, sg_id) {
       obj.id=service_id;
       if (obj!=null) {
         obj.func="editService";
-        churchInterface.jsendWrite(obj, function(res) {
-          window.location.reload();
+        churchInterface.jsendWrite(obj, function(ok, data) {
+          if (!ok) alert("Fehler beim Speichern: "+data);
+          else window.location.reload();
         });
       }
     });
@@ -2114,14 +2258,16 @@ ListView.prototype.editService = function(service_id, sg_id) {
     });
     
     form_renderLabelList(arr, "gruppen", masterData.groups);
-    form_renderLabelList(arr, "tags", masterData.tags);    
+    if (masterData.tags!=null)
+      form_renderLabelList(arr, "tags", masterData.tags);    
   }  
   
 };
 
 ListView.prototype.renderAddServiceToServicegroup = function(event, sg_id, user_pid) {
   var rows=new Array();
-  rows.push('<div id="in_edit"><table class="table table-condensed"><tr><th><input type="checkbox" id="cb_enableAll"/><th>Service');
+  rows.push('<div id="in_edit"><table class="table table-condensed">');
+  rows.push('<tr><th><input type="checkbox" id="cb_enableAll"/><th>Service');
   if ((masterData.auth.editgroup!=null) && (masterData.auth.editgroup[sg_id])) {
     rows.push('<th width="25px">');
   }
@@ -2132,17 +2278,17 @@ ListView.prototype.renderAddServiceToServicegroup = function(event, sg_id, user_
     if (masterData.service[s.id].notiz!="")
       rows.push('&nbsp; <small>('+masterData.service[s.id].notiz+")</small>");
       if ((masterData.auth.editgroup!=null) && (masterData.auth.editgroup[sg_id])) {
-        rows.push('<td>'+form_renderImage({cssid:"editService", data:[{name:"service-id", value:s.id}], src:"options.png", width:20}));
+        rows.push('<td>'+form_renderImage({htmlclass:"edit-service", link:true, data:[{name:"service-id", value:s.id}], src:"options.png", width:20}));
       }
     
   });
   if ((masterData.auth.editgroup!=null) && (masterData.auth.editgroup[sg_id])) {
-    rows.push('<tr><td><td><i><a href="#" class="newService">Neuen Service erstellen</a></i><td><td>'
+    rows.push('<tr><td><td><i><a href="#" class="newService">Neuen Service erstellen</a></i><td>'
         +form_renderImage({cssid:"addService", src:"plus.png", width:20}));
   }
   rows.push("</table></div>");
   
-  var elem = this.showDialog("Welcher Service soll ver&auml;ndert werden?", rows.join(""), 600, 580, {
+  var elem = this.showDialog("Service zum Event hinzufügen oder entfernen", rows.join(""), 450, 500, {
       "Speichern": function() {
         obj=new Object();
         auto=new Array();
@@ -2174,7 +2320,7 @@ ListView.prototype.renderAddServiceToServicegroup = function(event, sg_id, user_
           }
         });  
       },
-      "Abbruch": function() {
+      "Abbrechen": function() {
         $(this).dialog("close");
       }
     });
@@ -2243,7 +2389,7 @@ ListView.prototype.renderAddServiceToServicegroup = function(event, sg_id, user_
     t.editService(null, sg_id);
     return false;
   });
-  elem.find("#editService").click(function() {
+  elem.find("a.edit-service").click(function() {
     t.editService($(this).attr("data-service-id"), sg_id);
     return false;
   });
@@ -2262,32 +2408,32 @@ ListView.prototype.sendEMailToEvent = function(event) {
   if (_dienstgruppen.length==0)
     alert("Um eine E-Mail zu senden, muss mindestens eine bekannte Person angefragt sein.");
   else {
-    rows.push('<form class="form-h_orizontal">');
-    rows.push("<legend>Schreibe E-Mail an angefragte Mitarbeiter</legend>");
-    
+    rows.push('<form class="form-inline">');    
+    rows.push('<div class="well">E-Mail an folgende Mitarbeiter senden:<br/><p><p>');
+    var c=0;
     $.each(this_object.sortMasterData(masterData.servicegroup), function(k,a) {
       if (_dienstgruppen[a.id]) {
         var checked="";
         if (this_object.isLeaderOfServiceGroup(a.id)) checked="checked";
-        rows.push(form_renderCheckbox({label:a.bezeichnung, cssid:"checkSG"+a.id,  controlgroup_class:"",
-          //controlgroup_start:(k==0), controlgroup_end:(k==churchcore_countObjectElements(masterData.servicegroup)-1), 
-                              checked:this_object.isLeaderOfServiceGroup(a.id)}));
+        rows.push(form_renderCheckbox({label:a.bezeichnung, cssid:"checkSG"+a.id,  controlgroup:false,
+                              checked:this_object.isLeaderOfServiceGroup(a.id)})+"&nbsp; &nbsp; ");
       }
     });
-    
-    //rows.push(this_object.renderInput("betreff", "Betreff:<br/>", "Infos zum "+event.bezeichnung+" am "+event.startdate.toDateEn(true).toStringDe(true), 1000));
+    rows.push('</div>');
     
     rows.push(form_renderInput({label:"Betreff", value:"Infos zum "+event.bezeichnung+" am "+event.startdate.toDateEn(true).toStringDe(true),
                 cssid:"betreff", type:"xlarge"}));
     
-    //rows.push("<br/>"+this_object.renderTextarea("inhalt", "Inhalt:<br/>", "", 100, 8));
-
-    //rows.push(form_renderTextarea({label:"Inhalt", cssid:"inhalt", type:"xlarge", rows:6}));
     var txt='<div id="inhalt" class="well" contenteditable="true">';
+    if (event.agenda && (user_access("view agenda", event.category_id) || t.amIInvolved(event))) {
+      var a=agendaView.getAgendaForEventIdIfOnline(event.id);
+      if (a!=null) 
+        txt=txt+'<br/><br/><a href="'+masterData.base_url+'?q=churchservice&id='+a.id+'#AgendaView" class="button">Ablauf aufrufen</a>';
+    }
+
     if (masterData.settings.signature!=null) txt=txt+masterData.settings.signature;
     txt=txt+'</div>';
-    rows.push(form_renderLabel(txt, 'Inhalt'));
-//    rows.push(form_renderLabel('<small>Verf&uuml;gbare Serienfelder: <a href="#" id="Vorname">[Vorname]</a> <a href="#" id="Nachname">[Nachname]</a></small>'));
+    rows.push(txt);
     
     if (masterData.settings.sendBCCMail==null)
       masterData.settings.sendBCCMail=1;
@@ -2296,7 +2442,7 @@ ListView.prototype.sendEMailToEvent = function(event) {
     
     rows.push("</form");
 
-    var elem=this_object.showDialog("E-Mail an Mitarbeiter",rows.join(""), 600,600, {
+    var elem=this_object.showDialog("E-Mail an ausgewählte Mitarbeiter",rows.join(""), 600,650, {
         "Absenden": function() {
           var obj = new Object();
           var ids="";
@@ -2379,7 +2525,7 @@ ListView.prototype.attachFile = function(event) {
     }    
   });
 
-  rows.push('<legend>1. Option zum Hochladen der Datei</legend>');
+  rows.push('<form class="form-inline"><legend>1. Option zum Hochladen der Datei</legend>');
   if (eventIds.length>0) {
     checked=masterData.settings.file_attachToAllEvents==1;
     rows.push(form_renderCheckbox({
@@ -2398,15 +2544,15 @@ ListView.prototype.attachFile = function(event) {
     });
   }
   if (_dienstgruppen.length>0) {
-    rows.push("<p>Folgende Dienstgruppen per E-Mail &uuml;ber die neue Datei informieren:");
+    rows.push("<p>Folgende Dienstgruppen per E-Mail &uuml;ber die neue Datei informieren:<p>");
     $.each(this_object.sortMasterData(masterData.servicegroup), function(k,a) {
       if (_dienstgruppen[a.id]) {
         checked=masterData.settings["file_informServiceGroup"+a.id]==1;
         rows.push(form_renderCheckbox({label:a.bezeichnung, controlgroup:false, checked:checked, 
-            cssid:"file_informServiceGroup"+a.id}));
+            cssid:"file_informServiceGroup"+a.id})+"&nbsp; &nbsp;");
       }
     });    
-    rows.push('<p>Hier kann ein Kommentar angeben werden:<div class="well" contenteditable="true" id="editor">&nbsp;</div>');    
+   rows.push('<p>Hier kann ein Kommentar angeben werden:<div class="well" contenteditable="true" id="editor">&nbsp;</div>');    
     
   }
   if (rows.length==1) { 
@@ -2418,7 +2564,9 @@ ListView.prototype.attachFile = function(event) {
   
   rows.push("<p><div id=\"upload_button\">Nochmal bitte...</div><p>");
   
-  var elem = this_object.showDialog("Datei zum Event "+event.bezeichnung+" hochladen",rows.join(""), 520, 500, {
+  rows.push("<p><small>Sobald eine Datei hochgeladen wurde, werden alle angewählten Mitarbeiter per E-Mail informiert.</form>");
+  
+  var elem = form_showDialog("Datei zum Event "+event.bezeichnung+" hochladen",rows.join(""), 520, 500, {
     "Abbrechen": function() {
       $(this).dialog("close");
     }
@@ -2490,7 +2638,7 @@ ListView.prototype.attachFile = function(event) {
                   obj.usetemplate="true";
                   obj.func="sendEMailToPersonIds";
                   churchInterface.jsendWrite(obj, function(ok, data) {
-                    if (ok) alert("E-Mail wurde gesendet. "+(data!="ok"?data:""));
+                    if (ok) alert("E-Mail wurde gesendet. "+(data!=null?data:""));
                     else alert("Problem beim Senden: "+data);   
                   }, null, false);          
                 }
@@ -2507,7 +2655,6 @@ ListView.prototype.attachFile = function(event) {
       else alert("Sorry, es ist ein Fehler beim Hochladen aufgetreten!");
     }
   });    
-  
 };
 
 ListView.prototype.renderFiles = function () {
@@ -2521,93 +2668,204 @@ ListView.prototype.renderFiles = function () {
     }
     else t.renderFilelist("Dateien zum Event:", allEvents);
   }
-  var drin=false;
-  $("#cdb_content span[tooltip].file").hover(
-      function() {
-          drin=true;
-          this_object.prepareTooltip($(this));
-        }, 
-        function() {
-          drin=false;
-          window.setTimeout(function() {
-            if (!drin)
-              this_object.clearTooltip();
-          },100);
-        }
-      );   
-    
 
+  $("#cdb_content span.tooltip-file").each(function() {
+    var tooltip=$(this);
+    tooltip.tooltips({
+      data:{id:tooltip.attr("data-id"), event_id:tooltip.parents("tr").attr("id")},
+      render:function(data) {        
+        return t.renderTooltipForFiles(tooltip, allEvents[data.event_id].files[data.id], 
+            (masterData.auth.admin || allEvents[data.event_id].files[data.id].modified_pid==masterData.user_pid 
+              || bin_ich_admin(allEvents[data.event_id].admin)));
+      },      
+      afterRender: function(element, data) {
+        return t.tooltipCallbackForFiles(data.id, element, allEvents, data.event_id);
+      }
+    });    
+  });  
 };
 
 
-
-
 ListView.prototype.addFurtherListCallbacks = function(cssid) {
-  t=this;
+  var t=this;
   if (cssid==null) cssid="#cdb_content";
   t.renderFiles();
-  $(".hover").hover(
-      function () {
-        $('#headerspan'+$(this).attr("id").substr(6,99)).fadeIn('fast',function() {});
-      }, 
-      function () {
-        $('#headerspan'+$(this).attr("id").substr(6,99)).fadeOut('fast');
+
+  $("#cdb_content .tooltips").each(function() {
+    var tooltip=$(this);
+    tooltip.tooltips({
+      data:{id:tooltip.attr("data-tooltip-id"), event_id:tooltip.parents("tr").attr("id")},
+      showontouchscreen:false,
+      render:function(data) {
+        return t.renderTooltip(data.id, data.event_id, tooltip.attr("member")!=null, tooltip.attr("member")!=null);
+      },
+      
+      afterRender: function(element, data) {
+        element.find("a.edit-notification").click(function() {
+          clearTooltip();
+          t.editNotification($(this).attr("data-domain-type"), $(this).attr("data-domain-id"));
+          return false;
+        });
+        element.find("a.simulate-person").click(function() {
+          window.location.href="?q=simulate&id="+$(this).attr("data-id")+"&location=churchservice";
+          return false;
+        });
+        element.find("a.email-person").click(function() {
+          clearTooltip();
+          t.mailPerson($(this).attr("data-id"));
+          return false;
+        });     
+        element.find("a.edit-service").click(function() {
+          clearTooltip();
+          t.editService($(this).attr("data-id"));          
+        })
       }
-    );
+    });    
+  });
   
-  /*$('div.hover').mouseover(function(a) {
-    $('#headerspan'+$(this).attr("id").substr(6,99)).fadeIn('fast',function() {
-    });
+  $(cssid+" a.edit-event").click(function() {
+    clearTooltip();
+    t.renderEditEvent(allEvents[$(this).parents("tr").attr("id")]);
+    return false;
   });
-  $('div.hover').mouseout(function(a) {
-    $('#headerspan'+$(this).attr("id").substr(6,99)).fadeOut('fast');
+
+  $(cssid+" a.show-agenda").click(function() {
+    var event=allEvents[$(this).parents("tr").attr("id")];
+    if (!event.agenda) {
+      t.currentEvent=event;
+      agendaView.currentAgenda=null;
+      churchInterface.setCurrentView(agendaView, true);      
+    }
+    else {
+      t.entryDetailClick($(this).parents("tr").attr("id")); 
+    }    
   });
-  */
+
+  
   $(cssid+" a").click(function (a) {
-    // Person zu einer Kleingruppe dazu nehmen
-    if ($(this).attr("id")==null) 
+    clearTooltip();
+    var cssid=$(this).attr("id");
+    if (cssid==null) 
       return true;
-    else if ($(this).attr("id").indexOf("editEvent")==0) {
-      t.renderEditEvent(allEvents[$(this).attr("id").substr(9,99)]);
+    else if (cssid.indexOf("editEvent")==0) {
+      t.renderEditEvent(allEvents[cssid.substr(9,99)]);
     }
-    else if ($(this).attr("id").indexOf("mailEvent")==0) {
-      t.sendEMailToEvent(allEvents[$(this).attr("id").substr(9,99)]);
+    else if (cssid.indexOf("mailEvent")==0) {
+      t.sendEMailToEvent(allEvents[cssid.substr(9,99)]);
     }
-    else if ($(this).attr("id").indexOf("filterMyAdmin")==0) {
+    else if (cssid.indexOf("filterMyAdmin")==0) {
       if (t.filter["filterMeine Filter"]==2)
         delete t.filter["filterMeine Filter"];
       else t.setFilter("filterMeine Filter",2);
       t.renderView();
     }
-    else if ($(this).attr("id").indexOf("editNote")==0) {
-      t.editNote(allEvents[$(this).attr("id").substr(8,99)]);
+    else if (cssid.indexOf("editNote")==0) {
+      t.editNote(allEvents[cssid.substr(8,99)]);
     }
-    else if ($(this).attr("id").indexOf("attachFile")==0) {
-      t.attachFile(allEvents[$(this).attr("id").substr(10,99)]);
+    else if (cssid.indexOf("attachFile")==0) {
+      t.attachFile(allEvents[cssid.substr(10,99)]);
     }
-    else if ($(this).attr("id").indexOf("edit_es_")==0) {
-      t.renderEditEventService($(this).attr("id").substr(8,99),$(this).attr("eventservice_id"));      
+    else if (cssid.indexOf("edit_es_")==0) {
+      t.renderEditEventService(cssid.substr(8,99),$(this).attr("eventservice_id"));      
     }
-    else if ($(this).attr("id").indexOf("addService")==0) {
-      t.renderAddServiceToServicegroup(allEvents[$(this).attr("event_id")], $(this).attr("servicegroup_id"), masterData.user_pid);
-    }
-    else if ($(this).attr("id").indexOf("addMoreCols")==0) {
+    else if (cssid.indexOf("addMoreCols")==0) {
       t.addMoreCols();
     }
-    else if ($(this).attr("id").indexOf("delCol")==0) {
-      var id=$(this).attr("id").substr(6,99);
+    else if (cssid.indexOf("delCol")==0) {
+      var id=cssid.substr(6,99);
       masterData.settings["viewgroup"+id]=0;
       churchInterface.jsendWrite({func:"saveSetting", sub:"viewgroup"+id, val:0});
       t.renderList();
     }
+  });
+  $(cssid+" a.edit-service").click(function() {
+    t.renderAddServiceToServicegroup(allEvents[$(this).attr("data-event-id")], $(this).attr("data-servicegroup-id"), masterData.user_pid);
   });
   
   $('#ical_abo').click(function() {
     ical_abo();
     return false;
   });
+};
+
+ListView.prototype.editNotification = function(domain_type, domain_id) {
+  var t=this;
   
+  var form = new CC_Form();
+  var value=null;
+  if (domain_id!=null && getNotification(domain_type, domain_id)!==false) 
+    value=getNotification(domain_type, domain_id);
   
+  if (domain_id!=null && value==null) {
+    form.addHtml('<legend>Neues Abo f&uuml;r '+masterData[domain_type][domain_id].bezeichnung+'</legend>');
+    
+    $.each(masterData.notificationtype, function(k,a) {
+      a.sortkey=a.delay_hours;
+    });
+    
+    form.addSelect({label:"Wann soll bei Neuigkeiten f&uuml;r <b>"+masterData[domain_type][domain_id].bezeichnung+"</b> benachrichtigt werden?",
+           data:masterData.notificationtype, type:"medium", controlgroup:false, htmlclass:"new-notificationtype", selected:value, freeoption:true});
+    form.addHtml('<p><p>');
+  }
+  
+  if (masterData.notification[domain_type]!=null) {
+    form.addHtml('<legend>Vorhandene Abonnements</legend>');
+    form.addHtml('<table class="table table-condensed"><tr><th style="min-width:60px">Abo<th style="min-width:60px">Notiz<th>Wie oft?<th width="22px">');
+    $.each(masterData.notification[domain_type], function(k,a) {
+      form.addHtml('<tr data-id="'+k+'"><td>'+masterData[domain_type][k].bezeichnung+'<td>');
+      if (masterData[domain_type][k].notiz!=null)
+        form.addHtml('<small>'+masterData[domain_type][k].notiz+'</small>');        
+      form.addHtml('<td>');
+      form.addSelect({data:masterData.notificationtype, type:"medium", htmlclass:"edit-notificationtype", 
+        selected:a.notificationtype_id, controlgroup:false});
+      form.addHtml('<td>');
+      form.addImage({src:"trashbox.png", width:20, htmlclass:"delete-notification", link:true});
+    });
+  }
+  
+  var elem=form_showDialog("Abonnement bearbeiten",form.render(null, "vertical"), 460,500, {
+    "Schliessen": function() {
+      $(this).dialog("close");
+    }
+  });
+  
+  elem.find('select.new-notificationtype').change(function() {
+    if ($(this).val()!="") {
+      var notificationtype_id=$(this).val();
+      if (masterData.notification[domain_type]==null)
+        masterData.notification[domain_type]=new Object();
+      masterData.notification[domain_type][domain_id]={notificationtype_id:notificationtype_id, lastsenddate:null};
+      elem.dialog("close");
+      t.editNotification(domain_type, domain_id);        
+      churchInterface.jsendWrite({func:"editNotification", domain_type:domain_type, domain_id:domain_id, 
+           notificationtype_id:notificationtype_id}, function(ok, data) {
+        if (!ok) alert("Fehler aufgetreten: "+data);
+      });
+    }
+  });  
+  elem.find('select.edit-notificationtype').change(function() {
+    if ($(this).val()!="") {
+      var notificationtype_id=$(this).val();
+      var domain_id=$(this).parents("tr").attr("data-id");
+      masterData.notification[domain_type][domain_id]={notificationtype_id:notificationtype_id, lastsenddate:null};
+      elem.dialog("close");
+      t.editNotification(domain_type);
+      churchInterface.jsendWrite({func:"editNotification", domain_type:domain_type, domain_id:domain_id, 
+        notificationtype_id:notificationtype_id}, function(ok, data) {
+        if (!ok) alert("Fehler aufgetreten: "+data);
+      });
+    }
+  });  
+  elem.find('a.delete-notification').click(function() {
+    var domain_id=$(this).parents("tr").attr("data-id");
+    delete masterData.notification[domain_type][domain_id];
+    elem.dialog("close");
+    t.editNotification(domain_type);
+    churchInterface.jsendWrite({func:"editNotification", domain_type:domain_type, domain_id:domain_id}, function(ok, data) {
+      if (!ok) alert("Fehler aufgetreten: "+data);
+    });
+    return false;
+  });
 };
 
 function ical_abo() {
@@ -2709,7 +2967,7 @@ ListView.prototype.renderFilter = function() {
     if (typeof(this.filter["filterKategorien"])=="string")
       this_object.makeFilterCategories(masterData.settings.filterCategory);
       
-    this.filter["filterKategorien"].render2Div("filterKategorien", {label:"Kategorien"});
+    this.filter["filterKategorien"].render2Div("filterKategorien", {label:"Kalender"});
   }
 
   $.each(this.filter, function(k,a) {
@@ -2774,17 +3032,20 @@ ListView.prototype.renderCalendar = function() {
                       return [checkable,myday];
     },
     onSelect : function(dateText, inst) {
+      if (debug) console.log("onSelect "+dateText);
       t.currentDate=dateText.toDateDe();
       //    t.currentDate.addDays(-1);
       t.listOffset=0;
       if (t.filter["searchEntry"]!=null) {
-        t.filter["searchEntry"]="";
+        delete t.filter["searchEntry"];
         t.renderFilter();
+        t.renderListMenu();
       }
       t.renderList();
       t.addAbsentButton();
     },
     onChangeMonthYear:function(year, month, inst) {
+      if (debug) console.log("onChangeMonthYear "+year+" "+month);
       var dt = new Date();
       if (t.allDataLoaded) {
         // Wenn es der aktuelle Monat ist, dann gehe auf den heutigen Tag
@@ -2996,7 +3257,6 @@ ListView.prototype.editAbsent = function(pid, name, fullday) {
     });
   });
   elem.find("#inputStarthour").change(function() {
-    console.log($("#inputStarthour").val());
     elem.find("#inputEndhour").val($(this).val()+1);
   });
   
@@ -3006,6 +3266,11 @@ ListView.prototype.editAbsent = function(pid, name, fullday) {
   });
   elem.find("a").click(function() {
     if ($(this).attr("id").indexOf("addabsent")==0) {
+      var d=$("#inputStartdate").val();
+      new_absent.startdate=d.toDateDe(true);
+      var d=$("#inputEnddate").val();
+      new_absent.enddate=d.toDateDe(true);
+
       new_absent.func="addAbsent";
       new_absent.person_id=pid;
       new_absent.absent_reason_id=$("#inputAbsentReason").val();
@@ -3055,7 +3320,7 @@ ListView.prototype.editAbsent = function(pid, name, fullday) {
         cssid:"inputPerson"
       }));
       var elemPerson=this_object.showDialog("Andere Person ausw&auml;hlen", rows.join(""), 400, 400, {
-        "Abbruch": function() {
+        "Abbrechen": function() {
           $(this).dialog("close");
         }
       });
@@ -3072,21 +3337,29 @@ ListView.prototype.editAbsent = function(pid, name, fullday) {
   
 };
 
+ListView.prototype.amIInvolved = function(a) {
+  if (a.services==null)
+    return false;
+  var _dabei=false;
+  $.each(a.services, function(k,service) {
+    if ((service.valid_yn==1) && (service.cdb_person_id==masterData.user_pid)) {
+      _dabei=true;
+      // exit
+      return false;
+    }
+  });
+  if (!_dabei) return false;  
+  return true;
+};
+
 ListView.prototype.checkFilter = function(a) {
   var filter=this.filter;
-  var this_object=this;
+  var t=this;
   // Person wurde geloescht o.ae.
   if (a==null) return false;
   // Es gibt noch keine Daten, soll er aber laden ueber Details
   if (a.bezeichnung==null) return true;
 
-  /*
-  if (this.filter["searchFuture"]) {
-    var d = new Date(); 
-    d.addDays(-1);
-    if (a.startdate.toDateEn()<d) return false;
-  }*/
-  
   if (this.currentDate>a.startdate.toDateEn())
     return false;
   
@@ -3096,17 +3369,7 @@ ListView.prototype.checkFilter = function(a) {
   if (this.filter["filterMeine Filter"]!=null) {
     // Meine Filter filtern, also angefragt oder zugesagt
     if (this.filter["filterMeine Filter"]==1) {
-      if (a.services==null)
-        return false;
-      var _dabei=false;
-      $.each(a.services, function(k,service) {
-        if ((service.valid_yn==1) && (service.cdb_person_id==masterData.user_pid)) {
-          _dabei=true;
-          // exit
-          return false;
-        }
-      });
-      if (!_dabei) return false;
+      return t.amIInvolved(a);
     } 
     // Meine Events, wo ich Admin bin
     else if (this.filter["filterMeine Filter"]==2) {
@@ -3156,8 +3419,48 @@ function _renderDetails(id) {
 
 }
 
-ListView.prototype.renderEntryDetail = function (pos_id, data_id) {
+ListView.prototype.renderEntryDetail = function (event_id) {
+  var t=this;
+  if (allEvents[event_id]==null) return;
+  var event=allEvents[event_id];
+  t.currentEvent=event;
+  $("tr.detail[data-id="+event_id+"]").html("Lade Daten..");
+  if (event.agenda) {
+    songView.loadSongData();
+    agendaView.loadAgendaForEvent(event_id, function(data) {
+      var rows=new Array();
+      rows.push('<tr class="detail" id="detail'+event_id+'" data-id="'+event_id+'"><td colspan=20><div class="well">');  
+      rows.push('<legend>Ablauf ');
+      if (agendaView.currentAgenda!=null && agendaView.currentAgenda.final_yn==0)
+        rows.push(' ENTWURF');
+      rows.push('&nbsp;');
+      if (user_access("view agenda", event.category_id))
+        rows.push(form_renderImage({src:"agenda_call.png", htmlclass:"show-agenda", data:[{name:"id", value:data.id}], link:true, label:"Ablaufplan aufrufen", width:20})+"&nbsp;");
+      rows.push(form_renderImage({src:"printer.png", htmlclass:"print-agenda", data:[{name:"id", value:data.id}], link:true, label:"Druckansicht", width:20}));
 
+      rows.push('</legend>');
+      rows.push('<table class="table table-mini AgendaView">');
+      rows.push('<tr>'+agendaView.renderListHeader(true));
+      $.each(agendaView.getData(true), function(k,a) {
+        rows.push('<tr id="'+a.id+'">'+agendaView.renderListEntry(a, true));
+      });
+      
+      rows.push("</table>");
+      rows.push('</div>');
+      var elem=$("tr[id=" + event_id + "]").after(rows.join("")).next();
+      agendaView.addFurtherListCallbacks("tr.detail[data-id="+event_id+"]", true);
+      elem.find("a.show-agenda").click(function() {
+        agendaView.currentAgenda=allAgendas[$(this).attr("data-id")];
+        churchInterface.setCurrentView(agendaView); 
+        return false;
+      });
+      elem.find("a.print-agenda").click(function() {
+        fenster = window.open('?q=churchservice/printview&id='+$(this).attr("data-id")+'#AgendaView', "Druckansicht", "width=900,height=600,resizable=yes");
+        fenster.focus();
+        return false;
+      });
+    });
+  }
 };
 
 ListView.prototype.renderEditEntry = function(id, fieldname) {  

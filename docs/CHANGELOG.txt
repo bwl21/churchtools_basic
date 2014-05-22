@@ -1,14 +1,124 @@
 (Legende: "+"=>Neues Feature  "-"=>Fehlerbehebung)
 
+churchtools 2.48
++ (CR) Es gibt nun ein neues Recht "assistance mode", hiermit kann man nun fŸr einen anderen eine Ressource buchen
++ (Cal/CS) Man kann nun Text-Templates verwenden um KalendereintrŠge noch interessanter zu gestalten, z.B. Gottesdienst mit Pastor Uwe
++ (CDB) Gruppenliste: Tags sind nun anklickbar, Anzeige Anzahl Leiter und Export
++ (CDB) Interne Statistiktabllen fŸr spŠtere Auswertungen ergŠnzt
+- (CDB) Gruppenteilnahmenpflege Fehler behoben
+- (Cal) Fehler bei Wiederholungen mit Jahren und falschem Enddatum behoben.
+
+churchtools 2.47
+Achtung: Mindestvoraussetzung ist nun >= PHP 5.3
++ (CDB) Beim Gruppentreffen kann nun auch nachtrŠglich das Datum geŠndert werden
++ (CDB) In der Gruppenliste wird nun bei Auswahl eines Gruppentypes Mitglied oder Nicht-Mitglied angezeigt
++ (CDB) Neues Rechte fŸr das Nutzen von "Weiteren Filter" (hing vorher mit viewalldata zusammen. Wird automatisch beim Update gesetzt)
++ (CW) Man kann nun Kategorien verstecken und dann per Link direkt aufrufen.
+- (CS) €nderungen bei Services kšnnen nun abonniert werden.
++ (CS) AblaufplŠne kšnnen nun auch direkt aus dem Dienstplan gedruckt werden
++ (CS) AblaufplŠne haben nun einen Status Entwurf/Abgeschlossen
++ (CS) Nun wŠhlbar ob Kopieren und Integrieren von AblaufplŠnen zu vorhandenen.
++ (Cal) Es gibt nun eine Druckansicht
++ (Cal) Es kšnnen nun Besprechungsanfragen gestellt werden 
++ (Cal) Weitere Felder im iCal-Abo ergŠntzt
++ Austausch von "+" zu netteren Icons mit Hover-Funktion
++ Es kann nun ein eigenes Logo hochgeladen werden.
+- (CDB) Kleiner Bug bei Auswahl von Personen behoben
+- (CDB) VCardExport fŸr Mac optimiert
+- (CDB) Bug beim Editieren von Status behoben wenn in der Datenbank Ids auseinandergelaufen sind.
+- (CS) Spaltenauswahl in Agenda sind nun unabhŠngig vom Dienstplan
+- Zwischenspeichern nun kompatibel mit IE8
+- Mailchimp-Problem behoben.
+- Probleme mit '-Zeichen bei Ressourcen behoben
+
+churchtools 2.46
++ (CS) Zusagen und absagen auf der Startseite eleganter realisiert
++ (CS) Beim Export von Fakten kann nun Zeitraum gewŠhlt werden.
++ (CDB) …ffentlichen Gruppen kann nun Ÿber einen externen Link beigetreten werden
++ (CDB) Distriktleiter und Gruppentypleiter kšnnen nun Gruppen erstellen und Personen zu CT einladen
++ (CDB) Leiter von Personen kann nun die Tags der Personen sehen und editieren
++ (CDB) Gruppendetails sortierbar und Link zum Gruppentreffen hinzugefŸgt
++ (CDB) Die Begriffe Distrikt, Gruppentyp, Bereich und Station kann nun in der "Felder" angepa§t werden (nur PRO!)
++ (CDB) Neues Recht "create person". Man kann nun Personen berechtigen, Personen zu erstellen.
++ (CDB) Geburtsdatum darf nun auch nur Jahr oder nur Tag und Monat enthalten.
++ (CDB) Gruppenleiter kann nun auch Tags der Gruppe anpassen
++ (CDB) †berarbeitung der Rechte von Feldern in Personen und Gruppen. Man kann nun einstellen, siehe "Berechtigung der Felder" in Hilfe > ChurchDB > Berechtigung
++ EMails und Wiki-Seiten werden zwischengespeichert, so dass beim Verbindungsabbruch die Daten erhalten bleiben
+- Mitgliederliste kann nun unabhŠngig von View ChurchDB eingesehen werden.
+- (CDB) Gruppenleiter werden nur noch per Mail informiert, wenn sie schon mal eingeloggt waren
+- (CDB) Person darf nun auch seine eigenen Details sehen, wenn der Zugriff ansich erlaubt ist.
+- (CDB) Im Export fehlten u.U. Personen aus anderen Bereichen
+- (CDB) Umbennung Gruppenteilnahme in Gruppentreffen
+- (CDB) Einladungslink ist nun 14 Tage gŸltig.
+- (CDB) Distriktleiter oder Gruppentypleiter kann nun alle jeweils enthaltenen Personen editieren
+- (CDB) Geburtstagsliste wird nur noch durch das explizite Recht view birthdaylist angezeigt.   
+- (CS) Agenda-Positionen nun auch mit m:s Format in der Detailansicht
+- (CS) Plus-Zeichnen nun auch bei einer Servicegroup verfŸgbar, wenn man dort das Recht "edit servicegroup" hat.
+- Mediaelements update auf 2.13.2
+
+churchtools 2.45
++ (CS) Ablauf: SongBeamer Export der Ablaufliste fŸr die Lieder des aktuellen Ablaufs (inkl. †berschriften) 
++ (CDB) Export: Wenn "Meine Gruppen" ausgewŠhlt ist, wird beim Export auch Teilnehmerstatus, Datum und Kommentar exportiert
++ (CR) †ber Tooltip nun in Terminserien auch einzelne Termine absagen
++ (Cal) †ber Tooltip kann nun auch bei einer Serie einzelne Termine gelšscht werden.
+- (Cal) Resourcen-Ausnahmen werden nicht mehr Ÿberschrieben durch das Speichern im Kalender
+- (CDB) Kleine Bugs behoben: Gruppenliste Distriktleiterlink und Tooltip funktioniert nun etc.
+- (CS) Druckansicht beachtet nun auch den Filter "Meine Dienste"
+
+churchtools 2.44
++ (Cal/CS) ChurchService-Events kšnnen nun auch von Wiederholungsterminen angelegt werden.
++ (CS) Events kšnnen nun abgesagt werden, so das angefragte Personen informiert werden.
++ (CS) Erinnerungen an mehrere Dienste an einem Tag werden nun zusammengefasst.
++ (CDB) Neuer Filter bei weitere Filter "ist Mitglied". FŸr Personen interessant, die den Status nicht sehen dŸrfen.
+- Fehler bei Darstellung von markierten EintrŠgen (z.B. beim Checkin) behoben
+- Fehlender Bereich in den Stammdaten fŸhrt nicht mehr zum Fehler
+- Bei entfernten MySQL-Hosts ist das Problem mit dem neuen PDO-Treiber behoben.
+
+churchtools 2.43
++ Ab PHP-Version 5.3.7 werden nun gesalzene Passwšrter verwendet. Dies erhšht die Sicherheit bei der Speicherung der Passwšrter.
++ Aktualisiere auf jQuery 10.2 und jQuery UI 10.3, dadurch neues Design fŸr die Dialoge
++ Aktualisiere WYSIWYG-Editor CKEditor auf aktuelle Version 4.3.1.
++ (Cal) Aktualisiere auf Calender 1.6.4.
++ (Cal) Das aktuelle Datum wird nun immer gespeichert und beim nŠchsten Aufruf widerhergestellt
++ (Cal) Man kann nun die beim vorigen Termin angefragten Ressourcen wiederverwenden
++ (CDB) Man kann nun auch versteckte Gruppen sehen, wenn man manuell View-Rechte auf die Gruppe hat
++ (CDB) Gruppenleiter kšnnen nun auch die Gruppenstatistik sehen und Gruppenteilnahme pflegen
+- (CDB) Gruppenleiter sieht die Aufgabe "Zu lšschen" nicht mehr, wenn er nicht die Rechte dazu hat.
+- (Cal) Fehler in der Embedding-Sicht des Kalenders behoben
+- (CR) Fehler beim Erstellen von Terminen aus dem Kalender mit manuellen Zusatzterminen behoben.
+- (CR) Fehler bei der Anzeige in den Stammdatenpflege behoben
+- (CW) Es kšnnen wieder neue Kategorien erstellt werden.
+- (CW) Leere Seiten fŸhrten bei der Pro-Version zu Problemen.
+- (CS) Automatische Datenspeicherung bei Fakten, wenn die Eingabe nach einiger Zeit nicht beendet wird.
+- (CS) Kalender passt nun auch auf dem iPad im Hochformat
+- Admin-Page zeigt nun wieder auch deaktvierte Module
+- Dateien werden nun Ÿberall alphabetisch sortiert angezeigt
+
+churchtools 2.42
++ (Cal) Rechte optimiert: Nun kann man wŠhlen, wer eigene Kalender erstellen kann und wer vorhandene administrieren darf.
++ (CS) Man kann nun auch ohne Admin-Rechte seine eigene hochgeladene Dateien lšschen
++ (CS) Separierte Anzeige der Kalender nach Gruppen und Gemeindekalender
++ Zeitzone einstellbar, wird bei manchen Installationen ab PHP 5.4 notwendig.
+
 churchtools 2.41
+Erste Version die auf der neuen Community von GutHib basiert. Dadurch sind einige KonfigurationsŠnderungen notwendig geworden:
 ACHTUNG: Wichtige €nderungen in der churchtools.config: Bitte die Datenbank-Angaben mit "db_" versehen, so dass dort steht:
 db_server = localhost
 db_user = root
 db_password = 1234
 db_name = churchtools
-+ (CS) Neues Recht: Edit Template - Darf Event-Templates editieren.
-- (CS) Man kann ohne ChurchDB-Rechte nun keine Personen mehr hinzufŸgen, die nicht zum Dienst gehšren
-- Bitte die neue ChurchDBSync-Version 1.06 verwenden!
+ACHTUNG: Bitte die neue ChurchDBSync-Version 1.06 verwenden!
+Weitere Neuigkeiten:
++ AblŠufe fŸr Events erstellen. Inklusive Vorlagen, Rechte, Songs hinzufŸgen, DruckansichtÉ
++ Songs Ÿberarbeitet und verbessert.
++ Startseite ist nun auch auf Englisch verfŸgbar
++ ZusŠtzliche Rechte fŸr 
+=> CS-Fakten ansehen und Exporten
+=> CS-Templates erstellen
+=> CDB-Archiv: Personen ins Archiv befšrdern und zurŸck
++ Viele weitere Detailverbesserung
+
+
 
 churchtools 2.40
 + Simulieren kann nun Ÿber die Fu§zeile direkt gestartet werden.

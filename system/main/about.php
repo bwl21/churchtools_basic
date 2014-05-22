@@ -13,7 +13,7 @@ function about_main() {
   $txt.='<div class="span3 bs-docs-sidebar">';   
   
     $txt.='<ul id="navlist" class="nav nav-list bs-docs-sidenav affix-top">';
-    $txt.='<li><a href="#log1">'.t("about.churchtools").'</a>';
+    $txt.='<li><a href="#log1">'.t("about")." ".variable_get("site_name").'</a>';
     if (user_access("administer persons","churchcore")) {
       $txt.='<li><a href="#log2">'.t("current.permissions").'</a>';
       $txt.='<li><a href="#log3">'.t("current.config").'</a>';    
@@ -23,19 +23,19 @@ function about_main() {
   $txt.='<div class="span9">';
 
   
-$txt.='<anchor id="log1"/><h1>'.t("about.churchtools").'</h1><div class="well">';
+$txt.='<anchor id="log1"/><h1>'.t("about")." ".variable_get("site_name").'</h1><div class="well">';
 $txt.='
 <p>'.t("churchtools.claim").'
 <br>'.t("read.more").': <a href="http://www.churchtools.de" target="_clean">www.churchtools.de</a>
 </p>
 ChurchTools 2.0  is licensed under the following license: MIT license
 <br/>The MIT License (MIT)
-<br/>Copyright (c) 2013 Jens Martin Rauen
+<br/>Copyright (c) 2014 Jens Martin Rauen
 <br/>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 <br/>The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 <br/>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 <br/>ChurchTools Pro is licensed under commercial licence.
-<br/>(C) 2013 Jens Martin Rauen
+<br/>(C) 2014 Jens Martin Rauen
 </p></div>
 ';
 
@@ -153,7 +153,6 @@ function check_db_constraints($small=true) {
    array('cdb_gruppentreffen', 'gruppe_id', 'cdb_gruppe', 'id'),
    array('cdb_gruppentreffen_gemeindeperson', 'gruppentreffen_id', 'cdb_gruppentreffen', 'id'),
    array('cdb_gruppentreffen_gemeindeperson', 'gemeindeperson_id', 'cdb_gemeindeperson', 'id'),
-   array('cdb_log', 'person_id', 'cdb_person', 'id'),
    array('cdb_person', 'geschlecht_no', 'cdb_geschlecht', 'id')
 //TODO allow value null when checking (null must not be found in id field of referenced table)
 );
@@ -172,11 +171,15 @@ function check_db_constraints($small=true) {
 
 // For footer e-mail function
 function about__ajax() {
-  global $config;
+  global $config, $user;
   $params=$_POST;
   if ($params["func"]=="sendEmailToAdmin") {
     churchcore_sendEMailToPersonids(implode(",",$config["admin_ids"]), $params["subject"], $params["text"]);
     $res=jsend()->success();    
+  }
+  else if ($params["func"]=="amILoggedIn") {
+    if ($user==null) $res=jsend()->success(false);
+    else $res=jsend()->success($user->id!=-1);    
   }
   else $res=jsend()->error("Unkown call: ".$params["func"]);
   drupal_json_output($res);

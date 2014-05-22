@@ -147,8 +147,8 @@ ChurchInterface.prototype.throwFatalError=function(errorText){
   modal.dialog({  
     autoOpen:true, 
     modal:true,
-    height:400,
-    width:500,
+    height:500,
+    width:600,
     title:"Fehler beim Laden",
     buttons: {
       "Neu laden":function() {modal.dialog("close");}
@@ -200,8 +200,12 @@ ChurchInterface.prototype.jsend = function (name, obj, func, async, get, overwri
       success : function(json) {
         this_object.clearStatus();
         // Error = ist was schlimmes passiert!
-        if (json.status=="error")  
-          alert("Fehler beim "+name+" in "+modulename+": "+json.message);
+        if (json.status=="error")  {
+          if (json.message=="Session expired!")
+            window.location.href="?q=home&message=Session ist abgelaufen, bitte neu anmelden!"
+          else
+            alert("Fehler beim "+name+" in "+modulename+": "+json.message);
+        }
         // Wenn es success oder fail ist, übergebe an die Anwendung zurück.
         else if (func!=null)
           func(json.status=="success", json.data);
@@ -216,6 +220,10 @@ ChurchInterface.prototype.jsend = function (name, obj, func, async, get, overwri
       }
     });
   }
+};
+
+ChurchInterface.prototype.saveSetting = function(settingname, val) {
+  this.jsendWrite({func:"saveSetting", sub:settingname, val:val});  
 };
 
 ChurchInterface.prototype.sendEmail = function (to, subject, body) {

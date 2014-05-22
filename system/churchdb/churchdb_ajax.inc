@@ -3,9 +3,6 @@ include_once("churchdb_db.inc");
 
 
 
-function getAuthForPerson($id) {
-  return getAuthForDomain($id, "person");
-}
 
 function getSearchableData() {
   $persons = db_query('SELECT person_id id, geburtsdatum, familienstand_no, geschlecht_no, hochzeitsdatum, nationalitaet_id,  
@@ -19,104 +16,7 @@ function getSearchableData() {
   return $arrs;	
 }
 
-function churchdb_getPersonDetails($id) {
-  global $user;
-  
-  // Entweder habe ich viewall auf den Bereich oder ich bin mit dem in einer Gruppe
-  $allowed=false;
-  $iAmLeader=false;
 
-  // Prï¿½fe erst, ob ich als Leiter mit dem in der Gruppe bin
-  if (!$allowed) {    
-    $myGroups=churchdb_getMyGroups($user->id, true, true);
-    if (count($myGroups)>0) {
-      $res=db_query("SELECT count(*) c
-               FROM {cdb_person} p, {cdb_gemeindeperson} gp, {cdb_gemeindeperson_gruppe} gpg 
-                      WHERE p.id=gp.person_id and gpg.gemeindeperson_id=gp.id and p.id=:id 
-                       and gpg.gruppe_id in (".implode(",", $myGroups).") ", array(':id'=>$id))->fetch();
-      if ($res->c>0) {
-        $iAmLeader=true;
-        $allowed=true;
-      }
-    }
-  }
-  // Prï¿½fe nun, ob ich normal mit dem in der Gruppe bin
-  if (!$allowed) {
-    $myGroups=churchdb_getMyGroups($user->id, true, false);
-    if (count($myGroups)>0) {
-      $res=db_query("SELECT count(*) c
-               FROM {cdb_person} p, {cdb_gemeindeperson} gp, {cdb_gemeindeperson_gruppe} gpg 
-                      WHERE p.id=gp.person_id and gpg.gemeindeperson_id=gp.id and p.id=:id 
-                       and gpg.gruppe_id in (".implode(",", $myGroups).") ", array(':id'=>$id))->fetch();
-      if ($res->c>0) {
-        $allowed=true;
-      }
-    }    
-  }
-  if (!$allowed) {
-    $allowedDeps=user_access("view alldata", "churchdb");
-    if ($allowedDeps!=null) {
-      $res=db_query('select count(*) as c from {cdb_bereich_person} 
-          where person_id=:p_id and bereich_id in ('.implode(',', $allowedDeps).')'
-        , array(':p_id'=>$id), false)->fetch();
-      if ($res->c>0) $allowed=true;
-    }
-  }
-  
-  if (!$allowed) 
-    return "no access";
-    
-  $res=db_query("select f.*, fk.intern_code from {cdb_feld} f, {cdb_feldkategorie} fk where f.feldkategorie_id=fk.id
-              and fk.intern_code in ('f_address', 'f_church', 'f_category') and aktiv_yn=1");
-  $sqlfields=array();
-  $sqlfields[]="p.id id";
-  $sqlfields[]="gp.id gp_id";
-  $sqlfields[]="geolat as lat";
-  $sqlfields[]="imageurl";
-  $sqlfields[]="geolng as lng";
-  $sqlfields[]="cmsuserid";
-  
-  function _checkAutorisierung($auto) {
-    global $iAmLeader;
-    if ($auto==null) return true;
-    if ($auto=="ViewAllDetailsOrPersonLeader") {
-      return user_access('view address',"churchdb") || ($iAmLeader) || (user_access('view alldetails',"churchdb"));      
-    } else if ($auto=="admin") {
-      return user_access('edit masterdata',"churchdb");      
-      
-    }
-    else echo "Unbekanntes Recht: ".$auto;      
-  }
-  
-  foreach ($res as $res2) {    
-    if (($res2->autorisierung==null) || (_checkAutorisierung($res2->autorisierung)))
-      if (($res2->intern_code=="f_address") || ($iAmLeader) || (user_access('view alldetails',"churchdb")))
-        $sqlfields[]=$res2->db_spalte;  
-  } 
-       
-  $sql="select ".join($sqlfields,",");
-  if (($iAmLeader) || (user_access('view alldetails',"churchdb")))
-    $sql.=', p.letzteaenderung, p.aenderunguser, p.createdate, if (loginstr is null , 0 , 1) as einladung, p.active_yn, p.lastlogin';
-      	
-  $sql.=' FROM {cdb_person} p, {cdb_gemeindeperson} gp WHERE p.id=gp.person_id and p.id=:pid';  
-    
-  $person=db_query($sql, array(':pid'=>$id))->fetch();  
-  $comments=db_query("select id, text, person_id, datum, comment_viewer_id, relation_name from {cdb_comment} 
-                      where relation_id=:relid and relation_name like 'person%'
-					  order by datum desc", array(':relid'=>$id));
-  $auth=user_access("view comments","churchdb");
-  if (($comments) && ($auth!=null)) {
-    $arrs=null;
-    foreach ($comments as $arr) {
-      if ((isset($auth[$arr->comment_viewer_id])) &&
-        ($auth[$arr->comment_viewer_id]==$arr->comment_viewer_id))
-        $arrs[]=$arr;		
-    }
-    $person->comments=$arrs;
-  }
-  $person->auth=getAuthForPerson($id);
-  return $person;				  	
-}
 
 function churchdb_getPersonDetailsLogs($id) {
   $arrs="";
@@ -206,6 +106,20 @@ function churchdb_getGroupFilterTypes() {
 }
 
 /**
+ * Check Authorization pattern like " view all || leader " is in $permissinos
+ * @param $auth string with optional ||Êas OR combinations
+ * @param array $permissions 
+ * @return boolean
+ */
+function checkFieldAuth($auth, $permissions) {
+  if ($auth==null) return true;
+  foreach (explode('||',$auth) as $val) {
+    if (isset($permissions[trim($val)])) return true;
+  }
+  return false;  
+}
+
+/**
  * 
  * @return Gibt das alte Array zurueck
  * @param object $fields 
@@ -220,18 +134,44 @@ global $user;
   
   $error_str="";
   $auth=churchdb_getAuthForAjax();
-//  if (($auth["viewall details"]) | (isPersonIsLeaderOf($user->id, diese person hier))))
-    $auth["ViewAllDetailsOrPersonLeader"]=true;
-    $auth["ViewAddressOrViewAllDetailsOrPersonLeader"]=true;
+  
+  $person_id=null;
+  if ($fields["tablename"]=="cdb_person" || $fields["tablename"]=="cdb_gemeindeperson") {
+    if (churchdb_isPersonSuperLeaderOfPerson($user->id, $primary_key)) {
+      $auth["leader"]=true;
+      $auth["superleader"]=true;
+    }
+    else if (churchdb_isPersonLeaderOfPerson($user->id, $primary_key)) {
+      $auth["leader"]=true;
+    }
+  } 
+  else if ($fields["tablename"]=="cdb_gruppe") {
+    $myGroups=churchdb_getMyGroups($user->id, true, false, true);
+    if (count($myGroups)>0) {
+      $auth["superleader"]=true;
+      $auth["leader"]=true;
+    }
+    else {
+      $myGroups=churchdb_getMyGroups($user->id, true, true);
+      if (count($myGroups)>0) {
+        $auth["leader"]=true;
+      }      
+    }
     
+  }
+  
   $sql="UPDATE {".$fields["tablename"]."} SET ";
   foreach ($data_arr as $key=>$param) {
   	if (isset($fields["fields"][$key])) { 
-  	  if ((!isset($fields["fields"][$key]["auth"])) 
-  	       || (isset($auth[$fields["fields"][$key]["auth"]]))) {  	
+  	  if (!isset($fields["fields"][$key]["auth"]) 
+  	       || checkFieldAuth($fields["fields"][$key]["auth"], $auth)) {
+  	    $param=str_replace("'","\'",$param);
 	  	switch ($fields["fields"][$key]["type"]) {
 	  	  case "number":
-	        $sql=$sql.$fields["fields"][$key]["sql"]."=".$param.", ";
+	  	    if ($param=="")
+	          $sql=$sql.$fields["fields"][$key]["sql"]."=null, ";
+	  	    else
+	  	      $sql=$sql.$fields["fields"][$key]["sql"]."=".$param.", ";
 			break;
 	  	  case "textarea":
 	        $sql=$sql.$fields["fields"][$key]["sql"]."='".$param."', ";
@@ -257,7 +197,7 @@ global $user;
     } 
   }
   if ($error_str!="")
-    return $error_str;
+    throw new CTException($error_str);
 
   // Wenn es nicht per Array ï¿½bergeben wurde, dann setze es auf jetzt
   if (isset($data_arr['letzteaenderung'])) 
@@ -307,9 +247,10 @@ global $user;
     return $res;
   }
   
-  $sql="SELECT id from {cdb_person} ".
-         "where vorname like '".$params["vorname"]."%' and name like '".$params["name"]."%'";
-  $obj=db_query($sql)->fetch();
+  $obj=db_query("SELECT id from {cdb_person} ".
+         "where vorname like :vorname and name like :name",
+    array(":vorname"=>(isset($params["vorname"])?$params["vorname"]."%":""), 
+          ":name"=>(isset($params["name"])?$params["name"]."%":"")))->fetch();
   if (((!isset($params["force"])) || ($params["force"]=="")) && (isset($obj->id))) {
     $arr["result"]="exist";
     $arr["id"]=$obj->id;
@@ -390,7 +331,7 @@ global $user;
 
 
 function _churchdb_getMembersOfGroup($group_id) {
-  $sql="select p.name, p.vorname, p.email, p.id p_id, gp.id id, gpg.status_no, g.bezeichnung , gpg.aenderunguser, DATE_FORMAT(gpg.letzteaenderung, '%d.%m.%Y') letzteaenderung, cmsuserid, gpg.comment
+  $sql="select p.name, p.vorname, p.email, p.id p_id, p.lastlogin, gp.id id, gpg.status_no, g.bezeichnung, gpg.aenderunguser, DATE_FORMAT(gpg.letzteaenderung, '%d.%m.%Y') letzteaenderung, cmsuserid, gpg.comment
               from {cdb_person} p, {cdb_gemeindeperson} gp, {cdb_gemeindeperson_gruppe} gpg, {cdb_gruppe} g 
               where p.id=gp.person_id and gp.id=gpg.gemeindeperson_id and g.id=gpg.gruppe_id and gpg.gruppe_id=$group_id";
   $res=db_query($sql);
@@ -408,8 +349,9 @@ function informLeaderAboutNewGroupMember($group_id, $gp_id, $add_text=null) {
   global $base_url, $user;
   $personen=_churchdb_getMembersOfGroup($group_id);
   foreach ($personen as $val) {
-    // Wenn es Leiter (1), CoLeiter (2) oder SuperVisor (3) sind und ich nicht selber der bin, der es geï¿½ndert hat
-    if (($val->status_no>=1) && ($val->status_no<=3) && ($val->email!=null) && ($val->email!="") && 
+    // Wenn er schonmal eingelogt war und
+    // Leiter (1), CoLeiter (2) oder SuperVisor (3) sind und ich nicht selber der bin, der es geï¿½ndert hat
+    if (($val->lastlogin!=null) && ($val->status_no>=1) && ($val->status_no<=3) && ($val->email!=null) && ($val->email!="") && 
              (($val->cmsuserid==null || ($val->cmsuserid!=$user->cmsuserid))))  {
       $mt=getGroupMemberTypes();
       $content="<h3>Hallo ".$mt[$val->status_no]["bezeichnung"]."!</h3><p>";
@@ -423,7 +365,7 @@ function informLeaderAboutNewGroupMember($group_id, $gp_id, $add_text=null) {
         $content=$content."<p>".$add_text;
       $content=$content.'<p><p><a class="btn btn-royal" href="'.$base_url.'?q=churchdb#PersonView/searchEntry:'.$personen[$gp_id]->p_id.'">Person ansehen</a>';
 
-      churchdb_send_mail("[".variable_get('site_name', 'drupal')."] Neuer Teilnehmer in der Gruppe \"".$val->bezeichnung."\"",
+      churchdb_send_mail("[".variable_get('site_name', 'drupal')."] Neuer Teilnehmer in der Gruppe ".$val->bezeichnung,
 	              $content, $val->email);
   	}
   }	
@@ -433,7 +375,7 @@ function informLeaderAboutEditedGroupMember($group_id, $gp_id, $add_text=null) {
   $personen=_churchdb_getMembersOfGroup($group_id);
   foreach ($personen as $val) {
     // Wenn es Leiter (1), CoLeiter (2) oder SuperVisor (3) sind und ich nicht selber der bin, der es geï¿½ndert hat
-    if (($val->status_no>=1) && ($val->status_no<=3) && ($val->email!=null) && ($val->email!="") && 
+    if (($val->lastlogin!=null) && ($val->status_no>=1) && ($val->status_no<=3) && ($val->email!=null) && ($val->email!="") && 
              (($val->cmsuserid==null || ($val->cmsuserid!=$user->cmsuserid))))  {
       $mt=getGroupMemberTypes();
       $content="<h3>Hallo ".$mt[$val->status_no]["bezeichnung"]."!</h3>";
@@ -450,7 +392,7 @@ function informLeaderAboutEditedGroupMember($group_id, $gp_id, $add_text=null) {
       
       $content=$content.'<p><p><a class="btn btn-royal" href="'.$base_url.'?q=churchdb#PersonView/searchEntry:'.$personen[$gp_id]->p_id.'">Person ansehen</a>';
                      
-      churchdb_send_mail("[".variable_get('site_name', 'drupal')."] Teilnehmerstatus in der Gruppe \"".$val->bezeichnung."\" angepasst",
+      churchdb_send_mail("[".variable_get('site_name', 'drupal')."] Teilnehmerstatus in der Gruppe ".$val->bezeichnung." angepasst",
 	              $content, $val->email);
     }
   }	
@@ -461,7 +403,7 @@ function informLeaderAboutDeletedGroupMember($group_id, $gp_id) {
   foreach ($personen as $val) {
     // Wenn es Leiter (1), CoLeiter (2) oder SuperVisor (3) sind und ich nicht selber der bin, der es geï¿½ndert hat
     // und ich nicht der bin, der gerade gelï¿½scht wurde!  
-    if (($val->status_no>=1) && ($val->status_no<=3) && ($val->email!=null) && ($val->email!="") && 
+    if (($val->lastlogin!=null) && ($val->status_no>=1) && ($val->status_no<=3) && ($val->email!=null) && ($val->email!="") && 
              ($gp_id!=$val->id) && (($val->cmsuserid==null || ($val->cmsuserid!=$user->cmsuserid))))  {
       $mt=getGroupMemberTypes();
       $content="<h3>Hallo ".$mt[$val->status_no]["bezeichnung"]."!</h3>";
@@ -474,7 +416,7 @@ function informLeaderAboutDeletedGroupMember($group_id, $gp_id) {
       
       $content=$content.'<p><p><a class="btn btn-royal" href="'.$base_url.'?q=churchdb#PersonView/searchEntry:'.$personen[$gp_id]->p_id.'">Person ansehen</a>';
                
-      churchdb_send_mail("[".variable_get('site_name', 'drupal')."] Teilnehmer in der Gruppe \"".$val->bezeichnung."\" entfernt",
+      churchdb_send_mail("[".variable_get('site_name', 'drupal')."] Teilnehmer in der Gruppe ".$val->bezeichnung." entfernt",
 	              $content, $val->email);
 
     }
@@ -489,6 +431,8 @@ function churchdb_addPersonGroupRelation($p_id, $g_id, $leader, $date, $followup
     $dt=new DateTime();
     $date=$dt->format('Y-m-d H:i:s');
   }
+  
+  if (!isset($user->cmsuserid)) $user->cmsuserid="anonymous";
 
   $fields= array(
             'gemeindeperson_id'=>$gp_id, 
@@ -687,6 +631,7 @@ function churchdb_getModulesPath() {
 
 function churchdb_getMasterDataTablenames() {
   $res=array();
+  
   // Nummern nicht ï¿½ndern, Statistik bezieht sich darauf!
   $res[1]=churchcore_getMasterDataEntry(1, "Status", "status", "cdb_status");
   $res[1]["special_func"]=array("name"=>"Berechtigungen", "image"=>"schluessel", "func"=>"editAuth");
@@ -828,8 +773,8 @@ function _churchdb_getPersonByName($searchpattern, $withMyDepartment=false) {
         (upper(name) like upper('".$searchpattern."%') or upper(vorname) like upper('".$searchpattern."%')
           or (concat(upper(vorname),' ',upper(name)) like upper('".$searchpattern."%') )
           or (concat(upper(spitzname),' ',upper(name)) like upper('".$searchpattern."%') )
-          ) 
-        
+          or (upper(email) like upper('".$searchpattern."%') )
+        )         
         order by vorname, name");
     foreach ($res as $k) {
       $arr=array();
@@ -905,7 +850,10 @@ function churchdb_getAuthForAjax() {
 
   if (isset($auth["write access"]))
     $res["write"]=true;
-    
+  
+  if (isset($auth["create person"]))
+    $res["create person"]=true;
+  
   if (isset($auth["view archive"])) {
     $res["viewarchive"]=true;
   }  
@@ -945,6 +893,10 @@ function churchdb_getAuthForAjax() {
     $res["viewalldata"]=true;
   } 
   
+  if (user_access("complex filter","churchdb"))
+    $res["complex filter"]=true;
+    
+  
   if (user_access("administer persons","churchcore"))
     $res["adminpersons"]=true;
     
@@ -959,7 +911,7 @@ function churchdb_getAuthForAjax() {
 }
 
 function churchdb_getAuthTable() {
-  $res=db_query("select * from {cc_auth}");
+  $res=getAuthTable();
   $auth=null;
   foreach($res as $entry) {
     $auth[$entry->modulename][$entry->auth]=$entry;    
@@ -969,7 +921,6 @@ function churchdb_getAuthTable() {
 
 function churchdb_saveDomainAuth($params) {
   db_query("delete from {cc_domain_auth} where domain_id=".$params["id"]." and domain_type='".$params["domain_type"]."'");
-//  print_r($params);
   foreach($params as $key=>$val) {
     if (($val) && (strpos($key,"authid")===0)) {
       $key=substr($key,6,99);
@@ -1001,10 +952,11 @@ function churchdb_activatePerson($id) {
 }
 
 function churchdb_setPersonPassword($id, $password) {
-  if ((!isset($password)) || ($password==null) || ($password==""))
+  $scrambled_password=scramble_password($password);
+  if ($scrambled_password == null)
     throw new CTFail("Password nicht akzeptiert");
         
-  db_query("update {cdb_person} set password=md5(:password) where id=:id", array(":id"=>$id, ":password"=>$password), false);
+  db_query("update {cdb_person} set password=:password where id=:id", array(":id"=>$id, ":password"=>$scrambled_password), false);
 }
 
 
@@ -1128,8 +1080,6 @@ function churchdb_smspromote($param) {
     fclose($socket);
   }
   
-//  print_r($output);
-  
   $response_code = intval($output[count($output)-1]);
   
   $response_code_arr=array();
@@ -1204,11 +1154,16 @@ function f_functions($params) {
   // Prï¿½fe, ob eine E_Mail-Adresse gesetz werden soll die es schon gibt ohne Schreibrechte.
   // Das soll verhindert werden, denn sonst kann sich jemand die E-Mail eines Admins geben...
   if ((isset($params["email"]) && (!user_access("write access", "churchdb")))) {
-    $db=db_query("select * from {cdb_person} p where email=:email and id!=:id",
-    array(":email"=>$params["email"], ":id"=>$params["id"]))->fetch();
-    if ($db!=false) {
-      $res="Die E-Mail-Adresse ist schon vergeben. Um eine vergebene E-Mail-Adresse zu setzen werden mehr Rechte gebraucht.";
-      break;
+  	// Check, if the email address has changed
+    $db=db_query("select * from {cdb_person} p where id=:id",
+               array(":id"=>$params["id"]))->fetch();
+    if ($db->email!=$params["email"]) {
+      // Check, if other user has this email
+      $db=db_query("select * from {cdb_person} p where email=:email and id!=:id",
+                 array(":email"=>$params["email"], ":id"=>$params["id"]))->fetch();
+      if ($db!=false) {
+        throw new CTFail("Die E-Mail-Adresse ist schon vergeben. Um eine vergebene E-Mail-Adresse zu setzen werden mehr Rechte gebraucht.");
+      }
     }
   }
   if ($function=="f_group") {
@@ -1259,8 +1214,8 @@ class CTChurchDBModule extends CTAbstractModule {
     $res["groups"] = getAllGroups();
     $res["tags"] = getAllTags();
     $res["FUNachfolgeDomains"] = array("0"=> array ("id"=>"0", "bezeichnung"=>"Kein"),
-                                       "1"=> array ("id"=>"1", "bezeichnung"=>"Gruppentyp"),
-                                       "2"=> array ("id"=>"2", "bezeichnung"=>"Distrikt"),
+                                       "1"=> array ("id"=>"1", "bezeichnung"=>$res["fields"]["f_group"]["fields"]["gruppentyp_id"]["text"]),
+                                       "2"=> array ("id"=>"2", "bezeichnung"=>$res["fields"]["f_group"]["fields"]["distrikt_id"]["text"]),
                                        "3"=> array ("id"=>"3", "bezeichnung"=>"Gruppe")
     );
     $res["groupMemberTypes"] = getGroupMemberTypes();
@@ -1277,6 +1232,7 @@ class CTChurchDBModule extends CTAbstractModule {
     $res["modulespath"] = churchdb_getModulesPath();
     $res["files_url"] = $base_url.$files_dir;
     $res["modulename"] = "churchdb";
+    $res["max_uploadfile_size_kb"] = variable_get('max_uploadfile_size_kb');
     $res["adminemail"] = variable_get('site_mail', '');
     $res["max_exporter"] = variable_get('churchdb_maxexporter', '150');
     $res["groupnotchoosable"] = variable_get('churchdb_groupnotchoosable', 30);
@@ -1307,11 +1263,11 @@ class CTChurchDBModule extends CTAbstractModule {
   }
   public function mailchimp($params) {
     if ($params["sub"]=="load")
-    $res = churchdb_loadMailchimp();
+    return churchdb_loadMailchimp();
     else if ($params["sub"]=="add")
-    $res = churchdb_addMailchimpRelation($params);
+    return churchdb_addMailchimpRelation($params);
     else if ($params["sub"]=="del")
-    $res = churchdb_delMailchimpRelation($params);
+    return churchdb_delMailchimpRelation($params);
   }
   public function sendsms($params) {
     $this->checkPerm("send sms");
@@ -1352,7 +1308,7 @@ class CTChurchDBModule extends CTAbstractModule {
     saveGeocodeGruppe($params["id"],$params["lat"],$params["lng"]);
   }
   public function createAddress($params) {
-    $this->checkPerm("write access");
+    $this->checkPerm("create person");
     $res=createAddress($params);
     if (isset($res["id"]))
       $this->logPerson($params, 2);
@@ -1440,7 +1396,7 @@ class CTChurchDBModule extends CTAbstractModule {
     $this->log($params);
     churchdb_send_mail($params["subject"],$params["body"],$params["to"]);
   }
-  public function delete_user($params) {
+  public function deletePerson($params) {
     if ((user_access("administer persons","churchcore")) || (user_access("edit masterdata","churchdb"))) {
       $this->logPerson($params,1);
       return deleteUser($params["id"]);
@@ -1473,6 +1429,7 @@ class CTChurchDBModule extends CTAbstractModule {
     churchcore_saveUserSetting("churchdb",$user->id,"filter",serialize($arr));
   }
   public function delPersonTag($params) {
+    $this->logPerson($params);
     $gp_id=_churchdb_getGemeindepersonIdFromPersonId($params["id"]);
     db_query("delete from {cdb_gemeindeperson_tag} where tag_id=".$params["tag_id"]." and gemeindeperson_id=$gp_id");
   }
@@ -1577,7 +1534,7 @@ class CTChurchDBModule extends CTAbstractModule {
     churchdb_invitePersonToSystem($params["id"], $_SESSION["user"]);
   }
   public function setPersonPassword($params) {
-    $this->checkPerm("administer persons");
+    $this->checkPerm("administer persons", "churchcore");
     return churchdb_setPersonPassword($params["id"], $params["password"]);
   }
   public function sendEMailToPersonIds($params) {
@@ -1595,11 +1552,11 @@ class CTChurchDBModule extends CTAbstractModule {
     }
   }
   public function deactivatePerson($params) {
-    $this->checkPerm("administer persons");
+    $this->checkPerm("administer persons", "churchcore");
     return churchdb_deactivatePerson($params["id"]);
   }
   public function activatePerson($params) {
-    $this->checkPerm("administer persons");
+    $this->checkPerm("administer persons", "churchcore");
     return churchdb_activatePerson($params["id"]);
   }
   public function getGroupAutomaticEMail($params) {

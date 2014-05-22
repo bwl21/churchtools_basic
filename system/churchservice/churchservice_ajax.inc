@@ -1,7 +1,6 @@
 <?php
 include_once(drupal_get_path('module', 'churchcore') .'/churchcore_db.inc');
 include_once(drupal_get_path('module', 'churchdb') .'/churchdb_db.inc');
-//include_once("churchservice_db.inc");
 
 // Gibt array mit g_ids zurŸck
 function churchservice_getGroupsOfService($service_id) {
@@ -54,6 +53,9 @@ function churchservice_getAuthorization() {
   if (user_access("view","churchdb")) 
     $res["viewchurchdb"]=true;
   
+  if (user_access("administer persons", "churchcore"))
+    $res["administer persons"]=true;
+  
   if (isset($auth["view"]))
     $res["read"]=true;
   if (isset($auth["edit events"])) {
@@ -100,7 +102,8 @@ function churchservice_getAuthorization() {
   
   if (isset($auth["view servicegroup"])) 
     $res_view=$auth["view servicegroup"];
-  else $res_view=array();
+  else 
+    $res_view=array();
   // Prï¿½fe nach, ob ich irgendwo dabei bin
   $arr=churchcore_getTableData("cs_servicegroup","sortkey");
   
@@ -115,8 +118,13 @@ function churchservice_getAuthorization() {
   }
   $res["viewgroup"]=$res_view;
   
-  if (isset($auth["edit servicegroup"]))
+  if (isset($auth["edit servicegroup"])) {
     $res["editgroup"]=$auth["edit servicegroup"];
+    // Copy edit permission to view permissions!
+    foreach ($auth["edit servicegroup"] as $key=>$a) {
+      $res["viewgroup"][$key]=$a;
+    }
+  }
   else $res["editgroup"]=array();
   
   // PrŸfe nun, ob der aktuelle User Leiter oder zumindest Teilnehmer einer Gruppe ist
@@ -143,20 +151,25 @@ function churchservice_getAuthorization() {
   $res["leaderservice"]=$res_leader;
   $res["editservice"]=$res_edit;
   
+  
+  if (isset($auth["view agenda"])) {
+    $res["view agenda"]=$auth["view agenda"];    
+  }
+  if (isset($auth["edit agenda"])) {
+    $res["edit agenda"]=$auth["edit agenda"];
+    // Dupicate permission to view
+    foreach ($res["edit agenda"] as $key=>$edit) {
+      $res["view agenda"][$key]=$edit;
+    }
+  }
+  if (isset($auth["edit agenda templates"])) {
+    $res["edit agenda templates"]=$auth["edit agenda templates"];
+  }
+  
   $auth=$res;
   return $res;
 }
 
-
-/**
- * 
- * @param $subject
- * @param $message
- * @param $to
- */
-function churchservice_send_mail ($subject, $message, $to) { 
-  churchcore_systemmail($to, $subject, $message, true);
-}  
 
 
 function churchservice_getModulesPath() {
@@ -195,7 +208,8 @@ function churchservice_getNewEventData($params) {
   $events=array();                   
   foreach ($arr as $data) {
     $event=churchservice_getAllEventData(array("id"=>$data->event_id));
-    $events[$data->event_id]=$event[$data->event_id];
+    if (isset($event[$data->event_id]))
+      $events[$data->event_id]=$event[$data->event_id];
   }  
   return $events;
 }
@@ -231,6 +245,9 @@ function churchservice_getAllEventData($params) {
       // Hole noch Booking_Infos, damit ich wei§, dass er hier nicht das Datum Šndern darf.
       $b=db_query("select * from {cr_booking} where cc_cal_id=:cal_id", array(":cal_id"=>$arr->cc_cal_id))->fetch();
       $arr->bookings=$b!=false;
+      // Check if agenda items are available for this event
+      $b=db_query("select * from {cs_event_item} where event_id=:event_id limit 1", array(":event_id"=>$arr->id))->fetch();
+      $arr->agenda=$b!=false;
       // Nun geht es los!
       $events[$arr->id]=$arr;
       $event_admin=false;
@@ -355,12 +372,6 @@ global $user;
   }
 }
 
-function churchservice_deleteEvent($event_id) {
-  cdb_log("[ChurchService] Entferne Event!",2,$event_id,"service");          
-  db_query("delete from {cs_eventservice} where event_id=:event_id", array(":event_id"=>$event_id), false);
-  db_query("delete from {cs_event} where id=:event_id", array(":event_id"=>$event_id), false);
-}
-
 function churchservice_deleteService($params) {
   $service_id=$params["id"];
   $auth=churchservice_getAuthorization();
@@ -374,8 +385,12 @@ function churchservice_deleteService($params) {
 
 function churchservice_editService($params) {
   $auth=churchservice_getAuthorization();
-  if (!isset($auth["editservice"]) || (!isset($auth["editservice"][$params["id"]])))
+
+  if (!isset($auth["editgroup"]) || (!isset($auth["editgroup"][$params["servicegroup_id"]])))
     throw new CTNoPermission("editservice", "churchservice"); 
+  if (($params["id"]!="null") && ($params["id"]!=""))
+    if (!isset($auth["editservice"]) || (!isset($auth["editservice"][$params["id"]])))
+      throw new CTNoPermission("editservice", "churchservice"); 
   
   $i=new CTInterface();
   $i->setParam("id",false);
@@ -384,11 +399,12 @@ function churchservice_editService($params) {
   $i->setParam("servicegroup_id");
   $i->setParam("cdb_gruppen_ids", false);
   $i->setParam("cdb_tag_ids", false);
+  $i->setParam("cal_text_template", false);
   $i->setParam("sendremindermails_yn");
   $i->setParam("allowtonotebyconfirmation_yn");
   $i->setParam("sortkey");
   
-  if ($params["id"]=="null") {
+  if ($params["id"]=="null" || $params["id"]=="") {
     db_insert("cs_service")
       ->fields($i->getDBInsertArrayFromParams($params))
       ->execute(false);          
@@ -401,8 +417,16 @@ function churchservice_editService($params) {
   } 
 }
 
-function churchservice_updateEventService($id, $name, $cdb_person_id, $zugesagt_yn, $reason) {
+function churchservice_updateEventService($params) {
   global $user, $base_url;
+
+  $id=$params["id"];
+  $name=isset($params["name"])?$params["name"]:null;
+  $cdb_person_id=(isset($params["cdb_person_id"])?$params["cdb_person_id"]:null);
+  $reason=(isset($params["reason"])?$params["reason"]:null);
+  $zugesagt_yn=$params["zugesagt_yn"];
+  
+  include_once('system/churchservice/churchservice_db.inc');
   
   $res=array();
   
@@ -413,7 +437,7 @@ function churchservice_updateEventService($id, $name, $cdb_person_id, $zugesagt_
   $arr=db_query("select * from {cs_eventservice} where id=:id",array(":id"=>$id))->fetch();
   if (!$arr)
     return "Eintrag nicht gefunden, id nicht gï¿½ltig!";
-  if ($arr->valid_yn!=1)
+  if ($arr->valid_yn!=1 && !isset($params["valid_yn"]))
     return "Eintrag nicht mehr aktuell und konnte nicht angepasst, bitte neu laden!";
 
   // PrŸfe Rechte
@@ -424,19 +448,22 @@ function churchservice_updateEventService($id, $name, $cdb_person_id, $zugesagt_
     throw new CTNoPermission("editservice","churchservice");
 
     
-  // Wenn die neue €nderung vom gleichen User kommt und noch kein Cron gelaufen ist, 
+  // Wenn die neue €nderung vom gleichen User kommt und noch kein Cron gelaufen ist,
+  // Oder wenn valid_yn valide ist, denn dann soll es upgedates werden! 
   // brauchen wir kein neuen Insert, sondern machen nur ein Update.
   // Denn wahrscheinlich war es vorher nur ein Versehen.
   $dt=new datetime();
-  if (($arr->modified_pid==$user->id) && ($arr->mailsenddate==null)) {
+  if (($arr->modified_pid==$user->id && $arr->mailsenddate==null) || (isset($params["valid_yn"]))) {
+    $valid_yn=1;
+    if (isset($params["valid_yn"])) $valid_yn=$params["valid_yn"];
     db_update("cs_eventservice")
-      ->fields(array("name"=>$name, "cdb_person_id"=>$cdb_person_id, "zugesagt_yn"=>$zugesagt_yn, "reason"=>$reason, "mailsenddate"=>null,
+      ->fields(array("name"=>$name, "cdb_person_id"=>$cdb_person_id, "valid_yn"=>$valid_yn, "zugesagt_yn"=>$zugesagt_yn, "reason"=>$reason, "mailsenddate"=>null,
                 "modified_date"=>$dt->format('Y-m-d H:i:s'), "modified_pid"=>$user->id))
       ->condition("id",$id,"=")
       ->execute();    
     $new_id=$id;    
   } 
-  else {     
+  else {
     // Neuer Eintrag fŸr die €nderung wird angelegt  
     $new_id=db_insert("cs_eventservice")
       ->fields(array("event_id"=>$arr->event_id, "service_id"=>$arr->service_id, "valid_yn"=>1, "counter"=>$arr->counter,
@@ -449,52 +476,55 @@ function churchservice_updateEventService($id, $name, $cdb_person_id, $zugesagt_
       ->fields(array("valid_yn"=>0))
       ->condition("id",$id,"=")
       ->execute();
+  }
 
-    include_once("system/churchcore/churchcore_db.inc");
-    $leader=churchcore_getPersonById($arr->modified_pid);
-
+  include_once("system/churchcore/churchcore_db.inc");
+  $leader=churchcore_getPersonById($arr->modified_pid);
+  
+  
+  $event=db_query("select e.startdate datum, c.bezeichnung from {cs_event} e, {cc_cal} c
+         where e.cc_cal_id=c.id and e.id=:event_id", (array(":event_id"=>$arr->event_id)))->fetch();
+  $service=churchcore_getTableData("cs_service", "", "id=".$arr->service_id);
+  
+  if (($event!=false) && ($service!=null)) {
+    $service=$service[$arr->service_id];
+    $subject="";
+    $txt="";
+    // Sagt zu
+    if ($zugesagt_yn==1) {
+      $txt.="$user->vorname $user->name hat den Dienst $service->bezeichnung bei $event->datum $event->bezeichnung zugesagt.";
+      $subject="[".variable_get('site_name')."] $user->vorname $user->name hat eine Anfrage zugesagt";
+    }
+    // Schlï¿½gt jemanden vor
+    else if ($name!=null) {
+      $txt.="$user->vorname $user->name hat beim Dienst $service->bezeichnung bei $event->datum $event->bezeichnung $name vorgeschlagen";
+      $subject="[".variable_get('site_name')."] $user->vorname $user->name hat jemanden vorgeschlagen";
+    }
+    // sagt ab
+    else {
+      $txt.="$user->vorname $user->name hat den Dienst $service->bezeichnung bei $event->datum $event->bezeichnung abgesagt";
+      $subject="[".variable_get('site_name')."] $user->vorname $user->name hat eine Anfrage abgesagt";
+    }    
+    if ($reason!=null)
+      $txt.="<p>Folgendes wurde als Grund angegeben: ".$reason;
+    
+    ct_notify("service", $arr->service_id, $txt);
+    
     // Benachrichtige, wenn es sich um einen anderen handelt, der hier bestï¿½tigt oder ablehnt als den Anfrager (Inquierer)
     if (($leader!=null) && ($leader->email!=null) && ($leader->email!="") && ($user!=null) && ($leader->id!=$user->id)) {
       $setting=churchcore_getUserSettings("churchservice",$leader->id);
       if (isset($setting["informInquirer"]) && ($setting["informInquirer"]==1)) {
 
-        $event=db_query("select e.startdate datum, c.bezeichnung from {cs_event} e, {cc_cal} c 
-           where e.cc_cal_id=c.id and e.id=:event_id", (array(":event_id"=>$arr->event_id)))->fetch();        
-//        $event=churchcore_getTableData("cs_event", "", "id=".$arr->event_id);
-        $service=churchcore_getTableData("cs_service", "", "id=".$arr->service_id);
-        if (($event!=false) && ($service!=null)) {                              
-//          $event=$event[$arr->event_id];
-          $service=$service[$arr->service_id];
-          $txt="<h3>Hallo ".$leader->vorname.",</h3><p>";
-          
-          $subject="";
-          // Sagt zu
-          if ($zugesagt_yn==1) { 
-            $txt.="$user->vorname $user->name hat den Dienst $service->bezeichnung bei $event->datum $event->bezeichnung zugesagt.";
-            $subject="[".variable_get('site_name')."] $user->vorname $user->name hat eine Anfrage zugesagt";
-          }
-          // Schlï¿½gt jemanden vor
-          else if ($name!=null) {
-            $txt.="$user->vorname $user->name hat beim Dienst $service->bezeichnung bei $event->datum $event->bezeichnung $name vorgeschlagen";
-            $subject="[".variable_get('site_name')."] $user->vorname $user->name hat jemanden vorgeschlagen";                        
-          }
-          // sagt ab
-          else {
-            $txt.="$user->vorname $user->name hat den Dienst $service->bezeichnung bei $event->datum $event->bezeichnung abgesagt";
-            $subject="[".variable_get('site_name')."] $user->vorname $user->name hat eine Anfrage abgesagt";            
-          }
-          
-          if ($reason!=null)
-            $txt.="<p>Folgendes wurde als Grund angegeben: ".$reason;
-          $txt.='<p><a href="'.$base_url.'?q=churchservice&id='.$arr->event_id.'" class="btn btn-primary">Event aufrufen</a>';
-          churchservice_send_mail($subject, $txt, $leader->email);
-        }
+        $txt="<h3>Hallo ".$leader->vorname.",</h3><p>".$txt;
+        
+        $txt.='<p><a href="'.$base_url.'?q=churchservice&id='.$arr->event_id.'" class="btn btn-primary">Event aufrufen</a>';
+        churchservice_send_mail($subject, $txt, $leader->email);
       } 
       else if (!isset($setting["informInquirer"])) {
         churchcore_saveUserSetting("churchservice", $leader->id, "informInquirer", 0);
       }    
-    }          
-  }  
+    }
+  }          
 
   $arr=db_query("select es.*, concat(p.vorname,' ',p.name) as modifieduser from {cs_eventservice} es, {cdb_person} p 
                   where p.id=es.modified_pid and es.id=:id",array(":id"=>$new_id))->fetch();
@@ -558,7 +588,7 @@ function churchservice_pollForNews($params) {
 }
 
 function churchservice_ical() {
-  global $base_url;
+  global $base_url, $config;
   
   if (!isset($_GET["id"])) 
     echo "Bitte id angeben!";
@@ -571,18 +601,10 @@ function churchservice_ical() {
 
   $content=drupal_get_header();
 
-  $txt="BEGIN:VCALENDAR\r\n"; 
-  $txt.="VERSION:2.0\r\n"; 
-  $txt.="PRODID:-//ChurchTools//DE\r\n"; 
-  $txt.="CALSCALE:GREGORIAN\r\n"; 
-  $txt.="X-WR-CALNAME:".variable_get('site_name', 'drupal')." Service-Kalender\r\n";
-  $txt.="X-WR-TIMEZONE:Europe/Berlin\r\n"; 
-  $txt.="METHOD:PUSH\r\n"; 
-
-  include_once('./'. drupal_get_path('module', 'churchservice') .'/churchservice_db.inc');
-  
+  include_once('./'. drupal_get_path('module', 'churchservice') .'/churchservice_db.inc');  
   $arr=churchservice_getUserCurrentServices($id);
   
+  $txt="";
   foreach ($arr as $res) {
     $txt.="BEGIN:VEVENT\r\n"; 
     $txt.="ORGANIZER:MAILTO:".variable_get('site_mail', '')."\r\n";
@@ -591,7 +613,9 @@ function churchservice_ical() {
     else       
       $txt.="SUMMARY:Anfrage: ".$res->dienst." (".$res->servicegroup.")?\r\n";
     $txt.="X-MICROSOFT-CDO-BUSYSTATUS:BUSY\r\n"; 
-    $txt.="URL:".$base_url."/?q=churchservice/entrylist\r\n"; 
+    $txt.="URL:".$base_url."/?q=churchservice/entrylist\r\n";
+    if  ($res->ort!="")
+      $txt.="LOCATION:".$res->ort."\r\n";
     $txt.="DESCRIPTION:".$res->dienst." (".$res->servicegroup.") bei ".$res->event.".";
     if ($res->zugesagt_yn==1)    
       $txt.="\r\n";
@@ -599,14 +623,13 @@ function churchservice_ical() {
       $txt.=" Anfrage von $res->vorname $res->name [$res->modified_pid]\r\n";
     $txt.="DTSTAMP:".$res->modified_date."\r\n"; 
     $txt.="UID:".$res->eventservice_id."\r\n"; 
-    $txt.="DTSTART;TZID=Europe/Berlin:".$res->datum_start."\r\n"; 
-    $txt.="DTEND;TZID=Europe/Berlin:".$res->datum_end."\r\n"; 
+    $txt.="DTSTART;TZID=".$config["timezone"].":".$res->datum_start."\r\n"; 
+    $txt.="DTEND;TZID=".$config["timezone"].":".$res->datum_end."\r\n"; 
     $txt.="END:VEVENT\r\n"; 
   }
-  $txt.="END:VCALENDAR\r\n";
-
-  echo $txt;
+  echo surroundWithVCALENDER($txt);
 }
+
 function churchservice_saveNote($event_id, $text) {
   $text=str_replace("\'","'",$text);  
   $text=str_replace('\"','"',$text);  
@@ -952,6 +975,7 @@ class CTChurchServiceModule extends CTAbstractModule {
 	  $res["masterDataTables"] = $this->getMasterDataTablenames();
 	  $res["auth"] = $auth;
 	  $res["modulespath"] = churchservice_getModulesPath();
+	  $res["base_url"] = $base_url;
 	  $res["files_url"] = $base_url.$files_dir;
 	  $res["files_dir"] = $files_dir;
 	  $res["modulename"] = "churchservice";
@@ -960,12 +984,15 @@ class CTChurchServiceModule extends CTAbstractModule {
 	  $res["user_name"] = $user->vorname." ".$user->name;
 	  $res["userid"] = $user->cmsuserid;	  
       $res["settings"] =  churchservice_getUserSettings($user->id);
+      $res["notification"]= churchcore_getMyNotifications();
+      $res["notificationtype"]=churchcore_getTableData("cc_notificationtype");
       $res["lastLogId"] = churchservice_getLastLogId();
       $res["eventtemplate"] = churchcore_getTableData("cs_eventtemplate","sortkey");
       $res["category"] = churchcal_getAllowedCategories(false);  
       
       $res["eventtemplate_services"] = churchservice_getEventtemplateServices($auth);
       $res["churchcal_name"] =$config["churchcal_name"];
+      $res["songwithcategoryasdir"] = variable_get("churchservice_songwithcategoryasdir", "0");
       $res["songcategory"] = churchcore_getTableData("cs_songcategory","sortkey");
       return $res;
   }
@@ -975,12 +1002,7 @@ class CTChurchServiceModule extends CTAbstractModule {
   }
   
   public function updateEventService($params) {
-    return churchservice_updateEventService(
-       $params["id"],
-       (isset($params["name"])?$params["name"]:null),
-       (isset($params["cdb_person_id"])?$params["cdb_person_id"]:null),
-       $params["zugesagt_yn"],
-       (isset($params["reason"])?$params["reason"]:null));
+    return churchservice_updateEventService($params);
   }
   
   public function getAbsent($params) {
@@ -1110,22 +1132,326 @@ class CTChurchServiceModule extends CTAbstractModule {
     return $res;
   }
 
-  
-  public function loadAgendas($params) {
-    return churchcore_getTableData("cs_agenda");
+  /*
+   *  NOW ALL FUNCTIONS FOR AGENDA VIEW
+   */
+
+  /**
+   * Load agenda templates, if allowed.
+   * @throws CTNoPermission
+   */
+  public function loadAllAgendaTemplates($params) {
+    $auth=churchservice_getAuthorization();
+    $allowedAgendas=$auth["view agenda"];
+    
+    $where="calcategory_id in (".implode(",",$allowedAgendas).") and template_yn=1";
+    $data=churchcore_getTableData("cs_agenda", null, $where);
+    return $data;
   }
+  
+  
+  /**
+   * Load agendas with ids inclusive belonging Event_ids but without the items 
+   * Check if is allowed to view or if I am involved in one of the events
+   * @param $params [ids] for ids to get
+   * ¨return agenda oder null if not found or not allowed
+   */
+  public function loadAgendas($params) {   
+    $where="id in (".implode(",",$params["ids"]).")";
+    $data=churchcore_getTableData("cs_agenda", null, $where);
+    $auth=churchservice_getAuthorization();
+    $allowedAgendas=array();
+    if (isset($auth["view agenda"])) $allowedAgendas=$auth["view agenda"];
+    if ($data==false) return null;
+    else {
+      foreach ($data as $key=>$d) {    
+        // Check if template
+        $d->event_ids=$this->getBelongingEventIdsToAgenda($d->id);
+        // Check if allowed
+        if (!isset($allowedAgendas[$d->calcategory_id])) {
+          // if not allowed, checked if I am involved in services of belonging events
+          $involved=false;
+          foreach($d->event_ids as $event_id) {
+            if (!$involved) 
+              $involved=churchservice_amIInvolved($event_id);
+          }
+          if (!$involved) unset($data[$key]);
+        }
+      }
+      return $data;
+    }
+  }
+  
+  /**
+   * Gets the agenda belonging to the event $params["event_id"]
+   * @param unknown $params
+   * @throws CTFail
+   * @throws CTNoPermission
+   * @return Agenda with all items
+   */
+  public function loadAgendaForEvent($params) {
+        // Get first agenda_id
+    $db=db_query('select agenda_id from {cs_event_item} ei, {cs_item} i '. 
+                   'where ei.item_id=i.id and event_id=:event_id limit 1', 
+               array(":event_id"=>$params["event_id"]))->fetch();
+    if (!$db) throw new CTFail("Konnte keine Agenda fuer das Event finden!");
+    
+    // Now load agenda data
+    $agendas=$this->loadAgendas(array("ids"=>array($db->agenda_id)));
+    if (isset($agendas[$db->agenda_id]))
+      return $agendas[$db->agenda_id];
+    else throw new CTNoPermission("view agenda", "churchservice");
+  }
+  
+  private function getBelongingEventIdsToAgenda($agenda_id) {
+    // And add belonging event_ids to the agenda
+    $db2=db_query("select distinct ei.event_id id from {cs_event_item} ei, {cs_item} i
+                  where ei.item_id=i.id and i.agenda_id=:agenda_id", array(":agenda_id"=>$agenda_id));
+    $event_ids=array();
+    foreach ($db2 as $event) {
+      if ($event_ids[]=$event->id);
+    }
+    return $event_ids;    
+  }
+  
+  
+  /**
+   * Load Agenda items
+   * @param $params["agenda_id"]
+   * @throws CTException
+   * @throws CTNoPermission
+   * @return Ambigous <NULL, unknown, boolean, db_accessor>
+   */
   public function loadAgendaItems($params) {
-    $items=churchcore_getTableData("cs_item", null, "agenda_id=".$params["agenda_id"]);
+    $auth=churchservice_getAuthorization();
+    $db=churchcore_getTableData("cs_agenda", null, "id = ".$params["agenda_id"]);
+    if (!$db) throw new CTException("Agenda not found!");
+    $agenda=$db[$params["agenda_id"]];
+    
+    $items=churchcore_getTableData("cs_item", null, "agenda_id=".$params["agenda_id"]);    
     if ($items!=null) {
+      $event_ids=array();
       foreach ($items as $item) {
+        $ei=churchcore_getTableData("cs_event_item", null, "item_id=".$item->id, "event_id");
+        if ($ei!=null) {
+          $item->events=array();
+          foreach ($ei as $e) {
+            $item->event_ids[]=$e->event_id;
+            $event_ids[$e->event_id]=$e->event_id;
+          }
+        }
+        
         $sgs=churchcore_getTableData("cs_item_servicegroup", null, "item_id=".$item->id);
         if ($sgs!=null)
           foreach ($sgs as $sg) {
             $item->servicegroup[$sg->servicegroup_id]=$sg->note;
           }      
+      
       }
+      // Check perms
+      if ((!isset($auth["view agenda"])) || (!isset($auth["view agenda"][$agenda->calcategory_id]))) {
+        $involved=false;
+        foreach ($event_ids as $event_id) {
+          if (!$involved)
+            $involved=churchservice_amIInvolved($event_id);
+        }
+        if (!$involved) throw new CTNoPermission("view agenda", "churchservice");
+      }    
     } 
     return $items;
+  }
+  
+  /**
+   * Saves the item of the agenda agenda_id
+   * @param $params[...]
+   * @return new item id
+   */
+  public function saveItem($params) {
+    $agenda=$this->loadAgendas(array("ids"=>array($params["agenda_id"])));
+    if ($agenda==null)
+      throw new CTFail("Agenda nicht gefunden");
+    $this->checkPerm("edit agenda", null, $agenda[$params["agenda_id"]]->calcategory_id);
+    if ($agenda[$params["agenda_id"]]->template_yn==1)
+      $this->checkPerm("edit agenda templates", null, $agenda[$params["agenda_id"]]->calcategory_id);
+      
+    $i = new CTInterface();
+  	$i->setParam("agenda_id");
+  	$i->setParam("bezeichnung");
+  	$i->setParam("header_yn");
+  	$i->setParam("responsible");
+  	$i->setParam("arrangement_id", false);
+  	$i->setParam("note");
+  	$i->setParam("sortkey");
+  	$i->setParam("duration");
+  	$i->setParam("preservice_yn");
+  	$i->addModifiedParams();
+  	
+  	if (!isset($params["id"])) {
+  	  $params["id"]=db_insert("cs_item")
+  	  ->fields($i->getDBInsertArrayFromParams($params))
+  	  ->execute(false);
+  	}
+  	else {
+      db_update("cs_item")
+      ->fields($i->getDBInsertArrayFromParams($params))
+      ->condition("id", $params["id"], "=")
+      ->execute(false);
+  	}
+  	// Now insert event-relation  	
+    if (isset($params["event_ids"])) {
+  	  foreach ($params["event_ids"] as $event_id) {
+  	    // Ignore avoid error when item is already mapped to event
+  	    db_query("insert ignore into {cs_event_item} (event_id, item_id) values (:event_id, :item_id)", 
+  	      array(":event_id"=>$event_id, ":item_id"=>$params["id"]));
+  	  }  	    
+  	}
+  	return $params["id"];
+  }
+  
+  /**
+   * Saves the agenda and returns the saved one with all new Ids
+   */
+  public function saveAgenda($params) {
+    $this->checkPerm("edit agenda", null, $params["calcategory_id"]);
+    if ((isset($params["id"])) && (churchservice_isAgendaTemplate($params["id"])))
+      $this->checkPerm("edit agenda templates", null, $params["calcategory_id"]);
+    
+    $i = new CTInterface();
+  	$i->setParam("calcategory_id");
+  	$i->setParam("bezeichnung");
+  	$i->setParam("template_yn");
+  	$i->setParam("series");
+  	$i->setParam("final_yn", false);
+  	 
+  	if (!isset($params["id"])) {
+  	  $params["id"]=db_insert("cs_agenda")
+  	  ->fields($i->getDBInsertArrayFromParams($params))
+      ->execute(false);  	  
+  	}
+  	else {
+      db_update("cs_agenda")
+      ->fields($i->getDBInsertArrayFromParams($params))
+      ->condition("id", $params["id"], "=")
+      ->execute(false);
+  	}
+  	
+  	if (isset($params["items"])) {
+  	  $newitems=array();
+  	  foreach ($params["items"] as $key=>$item) {
+  	    $item["agenda_id"]=$params["id"];
+  	  	$item["id"]=$this->saveItem($item);
+  	  	$newitems[$item["id"]]=$item;
+  	  }
+  	  $params["items"]=$newitems;
+  	}
+    $params["event_ids"]=$this->getBelongingEventIdsToAgenda($params["id"]);
+  	return $params;  	 
+  }
+  
+  /**
+   * Load item $params["id"] with calcategory_id and template_yn from agenda
+   * @param unknown $params
+   * @throws CTException - When item not found
+   * @throws CTNoPermission - When not allowed to edit or view
+   * @return item
+   */
+  public function loadItem($params) {
+    $db=db_query("select i.*, a.calcategory_id, a.template_yn from {cs_item} i, {cs_agenda} a where i.agenda_id=a.id
+            and i.id=:id", array(":id"=>$params["id"]))->fetch();
+    if (!$db) throw new CTException("Item not found!");
+    $auth=churchservice_getAuthorization();
+    if ((!isset($auth["view agenda"])) && (!isset($auth["view agenda"][$db->calcategory_id])) &&
+        (!isset($auth["edit agenda"])) && (!isset($auth["edit agenda"][$db->calcategory_id])))
+      throw new CTNoPermission("view agenda", "churchservice");
+    return $db;
+  }
+  
+  public function saveServiceGroupNote($params) {
+    $item=$this->loadItem(array("id"=>$params["item_id"]));
+    $this->checkPerm("edit agenda", null, $item->calcategory_id);
+    if ($item->template_yn==1)
+      $this->checkPerm("edit agenda templates", null, $item->calcategory_id);
+    
+    $i = new CTInterface();
+    $i->setParam("item_id");
+    $i->setParam("servicegroup_id");
+    $i->setParam("note");
+    db_delete("cs_item_servicegroup")
+    ->fields($i->getDBInsertArrayFromParams($params))
+    ->condition("item_id", $params["item_id"], "=")
+    ->condition("servicegroup_id", $params["servicegroup_id"], "=")
+    ->execute(false);
+    db_insert("cs_item_servicegroup")
+    ->fields($i->getDBInsertArrayFromParams($params))
+    ->execute(false);    
+  }
+  
+  public function deleteItemEventRelation($params) {
+    $item=$this->loadItem(array("id"=>$params["item_id"]));
+    $this->checkPerm("edit agenda", null, $item->calcategory_id);
+    
+    $i = new CTInterface();
+    $i->setParam("item_id");
+    $i->setParam("event_id");
+    
+    db_delete("cs_event_item")
+    ->fields($i->getDBInsertArrayFromParams($params))
+    ->condition("item_id", $params["item_id"], "=")
+    ->condition("event_id", $params["event_id"], "=")
+    ->execute(false);    
+  }
+  
+  public function addItemEventRelation($params) {
+    $item=$this->loadItem(array("id"=>$params["item_id"]));
+    $this->checkPerm("edit agenda", null, $item->calcategory_id);
+        
+    $i = new CTInterface();
+    $i->setParam("item_id");
+    $i->setParam("event_id");
+    
+    db_insert("cs_event_item")
+    ->fields($i->getDBInsertArrayFromParams($params))
+    ->execute(false);    
+  }
+
+  public function deleteItem($params) {
+    $item=$this->loadItem(array("id"=>$params["id"]));
+    $this->checkPerm("edit agenda", null, $item->calcategory_id);
+        
+    $i = new CTInterface();
+    $i->setParam("id");
+    
+    db_delete("cs_event_item")
+    ->fields($i->getDBInsertArrayFromParams($params))
+    ->condition("item_id", $params["id"], "=")
+    ->execute(false);
+    
+    db_delete("cs_item")
+    ->fields($i->getDBInsertArrayFromParams($params))
+    ->condition("id", $params["id"], "=")
+    ->execute(false);    
+  }
+  
+  public function deleteAgenda($params) {
+    $agenda=$this->loadAgendas(array("ids"=>array($params["id"])));
+    if ($agenda==null)
+      throw new CTException("Agenda not found!");
+    $this->checkPerm("edit agenda", null, $agenda[$params["id"]]->calcategory_id);
+    if (churchservice_isAgendaTemplate($params["id"]))
+      $this->checkPerm("edit agenda templates", null, $agenda[$params["id"]]->calcategory_id);
+      
+    $i = new CTInterface();
+    $i->setParam("id");
+
+    $db=db_query("select * from {cs_item} where agenda_id=:agenda_id", array(":agenda_id"=>$params["id"]), false);
+    foreach ($db as $item) {
+      $this->deleteItem(array("id"=>$item->id));
+    }
+    
+    db_delete("cs_agenda")
+    ->fields($i->getDBInsertArrayFromParams($params))
+    ->condition("id", $params["id"], "=")
+    ->execute(false);
   }
 }
 
